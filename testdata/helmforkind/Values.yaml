@@ -1,0 +1,10 @@
+auth:
+  ## @param auth.username &reg;abbitMQ application username
+  ## ref: https://github.com/bitnami/bitnami-docker-rabbitmq#environment-variables
+  ##
+  username: user
+
+  ## @param auth.password &reg;abbitMQ application password
+  ## ref: https://github.com/bitnami/bitnami-docker-rabbitmq#environment-variables
+  ##
+  password: "password"
