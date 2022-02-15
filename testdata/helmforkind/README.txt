@@ -25,6 +25,7 @@ To access for outside the cluster, perform the following steps:
 To Access the RabbitMQ AMQP port:
 
     echo "URL : amqp://127.0.0.1:5672/"
+
     kubectl port-forward --namespace default svc/messagebroker-rabbitmq 5672:5672 &
     echo "URL : http://127.0.0.1:15672/"
     kubectl port-forward --namespace default svc/messagebroker-rabbitmq 15672:15672 &

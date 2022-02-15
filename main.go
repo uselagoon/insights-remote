@@ -17,11 +17,17 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"github.com/cheshir/go-mq"
+	"github.com/robfig/cron/v3"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/selection"
 	"log"
 	"os"
+	client2 "sigs.k8s.io/controller-runtime/pkg/client"
 	"strconv"
 	"time"
 
@@ -48,8 +54,9 @@ var (
 	mqPass                       string
 	mqHost                       string
 	mqPort                       string
-	mqWorkers                    int
 	rabbitReconnectRetryInterval int
+	burnAfterReading             bool
+	clearConfigmapCronSched      string
 )
 
 func init() {
@@ -77,10 +84,12 @@ func main() {
 		"The hostname for the rabbitmq host.")
 	flag.StringVar(&mqPort, "rabbitmq-port", "5672",
 		"The port for the rabbitmq host.")
-	flag.IntVar(&mqWorkers, "rabbitmq-queue-workers", 1,
-		"The number of workers to start with.")
 	flag.IntVar(&rabbitReconnectRetryInterval, "rabbitmq-reconnect-retry-interval", 30,
 		"The retry interval for rabbitmq.")
+	flag.BoolVar(&burnAfterReading, "burn-after-reading", true,
+		"Remove insights configmaps after they have been processed.")
+	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
+		"The cron schedule specifying how often insightType configmaps should be cleared.")
 
 	opts := zap.Options{
 		Development: true,
@@ -157,13 +166,54 @@ func main() {
 	}
 
 	if err = (&controllers.ConfigMapReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		MessageQ: messageQ,
+		Client:           mgr.GetClient(),
+		Scheme:           mgr.GetScheme(),
+		MessageQ:         messageQ,
+		BurnAfterReading: burnAfterReading,
+		WriteToQueue:     mqEnable,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 		os.Exit(1)
 	}
+
+	// Set up periodic removal of processed configmaps
+	if burnAfterReading {
+		c := cron.New()
+		c.AddFunc(clearConfigmapCronSched, func() {
+			client := mgr.GetClient()
+			configMapList := &corev1.ConfigMapList{}
+			insightsProcessedRequirement, err := labels.NewRequirement(controllers.InsightsLabel, selection.Exists, []string{})
+			if err != nil {
+				fmt.Printf("bad requirement: %v\n\n", err)
+				return
+			}
+
+			insightsProcessLabelSelector := labels.NewSelector()
+			insightsProcessLabelSelector = insightsProcessLabelSelector.Add(*insightsProcessedRequirement)
+			configMapListOptionSearch := client2.ListOptions{
+				LabelSelector: insightsProcessLabelSelector,
+				Limit:         5,
+			}
+			err = client.List(context.Background(), configMapList, &configMapListOptionSearch)
+			if err != nil {
+				log.Printf("Error getting list of configMaps: %v\n\n", err)
+				return
+			}
+
+			for _, x := range configMapList.Items {
+				//check the annotations
+				if _, okay := x.Annotations[controllers.InsightsUpdatedAnnotationLabel]; okay {
+					if err := client.Delete(context.Background(), &x); err != nil {
+						log.Printf("Unable to delete configMap '%v' in ns '%v': %v\n\n", x.Name, x.Namespace, err)
+					} else {
+						log.Printf("Deleted Insights configMap '%v' in ns '%v'", x.Name, x.Namespace)
+					}
+				}
+			}
+		})
+		c.Start()
+	}
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

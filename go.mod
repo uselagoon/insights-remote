@@ -10,6 +10,7 @@ require (
 	github.com/onsi/gomega v1.10.2
 	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/rabbitmq/amqp091-go v1.3.0 // indirect
+	github.com/robfig/cron/v3 v3.0.0 // indirect
 	github.com/streadway/amqp v1.0.0 // indirect
 	k8s.io/api v0.20.2
 	k8s.io/apimachinery v0.20.2

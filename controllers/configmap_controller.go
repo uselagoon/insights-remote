@@ -32,8 +32,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-const insightsLabel = "lagoon.sh/insightsType"
-const insightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
+const InsightsLabel = "lagoon.sh/insightsType"
+const InsightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
 
 type LagoonInsightsMessage struct {
 	Payload       map[string]string `json:"payload"`
@@ -45,8 +45,10 @@ type LagoonInsightsMessage struct {
 // ConfigMapReconciler reconciles a ConfigMap object
 type ConfigMapReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
-	MessageQ mq.MQ
+	Scheme           *runtime.Scheme
+	MessageQ         mq.MQ
+	WriteToQueue     bool
+	BurnAfterReading bool
 }
 
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
@@ -104,7 +106,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if annotations == nil {
 		annotations = map[string]string{}
 	}
-	annotations[insightsUpdatedAnnotationLabel] = time.Now().UTC().String()
+	annotations[InsightsUpdatedAnnotationLabel] = time.Now().UTC().String()
 	configMap.SetAnnotations(annotations)
 
 	if err := r.Update(ctx, &configMap); err != nil {
@@ -121,7 +123,7 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
 			for k, v := range event.Object.GetLabels() {
-				if (k == insightsLabel || v == insightsLabel) && insightsProcessedAnnotationExists(event.Object) != true {
+				if (k == InsightsLabel || v == InsightsLabel) && insightsProcessedAnnotationExists(event.Object) != true {
 					//fmt.Println("Got one that should be processed " + event.Object.GetName())
 					return true
 				}
@@ -129,11 +131,16 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 			return false
 		},
 		UpdateFunc: func(event event.UpdateEvent) bool {
+
 			for k, v := range event.ObjectNew.GetLabels() {
-				if (k == insightsLabel || v == insightsLabel) && insightsProcessedAnnotationExists(event.ObjectNew) != true {
+				if (k == InsightsLabel || v == InsightsLabel) && insightsProcessedAnnotationExists(event.ObjectNew) != true {
 					return true
 				}
 			}
+
+			return false
+		},
+		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
 			return false
 		},
 	}
@@ -142,7 +149,7 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 func insightsProcessedAnnotationExists(eventObject client.Object) bool {
 	annotations := eventObject.GetAnnotations()
 	annotationExists := false
-	if _, ok := annotations[insightsUpdatedAnnotationLabel]; ok {
+	if _, ok := annotations[InsightsUpdatedAnnotationLabel]; ok {
 		fmt.Println("Insights update annotation exists for " + eventObject.GetName())
 		annotationExists = true
 	}
