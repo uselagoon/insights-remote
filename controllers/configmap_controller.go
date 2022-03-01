@@ -20,16 +20,15 @@ import (
 	"context"
 	"fmt"
 	"github.com/cheshir/go-mq"
-	"k8s.io/apimachinery/pkg/util/json"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"time"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/json"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"time"
 )
 
 const InsightsLabel = "lagoon.sh/insightsType"
@@ -150,7 +149,7 @@ func insightsProcessedAnnotationExists(eventObject client.Object) bool {
 	annotations := eventObject.GetAnnotations()
 	annotationExists := false
 	if _, ok := annotations[InsightsUpdatedAnnotationLabel]; ok {
-		fmt.Println("Insights update annotation exists for " + eventObject.GetName())
+		log.Log.Info(fmt.Sprintf("Insights update annotation exists for '%v' in ns '%v'", eventObject.GetName(), eventObject.GetNamespace()))
 		annotationExists = true
 	}
 	return annotationExists

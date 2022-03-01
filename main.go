@@ -209,10 +209,15 @@ func main() {
 			for _, x := range configMapList.Items {
 				//check the annotations
 				if _, okay := x.Annotations[controllers.InsightsUpdatedAnnotationLabel]; okay {
+					//grab the build this is linked to
+					buildName := ""
+					if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
+						buildName = fmt.Sprintf(" (build: '%v')", val)
+					}
 					if err := client.Delete(context.Background(), &x); err != nil {
 						log.Printf("Unable to delete configMap '%v' in ns '%v': %v\n\n", x.Name, x.Namespace, err)
 					} else {
-						log.Printf("Deleted Insights configMap '%v' in ns '%v'", x.Name, x.Namespace)
+						log.Printf("Deleted Insights configMap '%v' in ns '%v' %v", x.Name, x.Namespace, buildName)
 					}
 				}
 			}
