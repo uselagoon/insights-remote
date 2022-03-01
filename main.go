@@ -86,7 +86,7 @@ func main() {
 		"The port for the rabbitmq host.")
 	flag.IntVar(&rabbitReconnectRetryInterval, "rabbitmq-reconnect-retry-interval", 30,
 		"The retry interval for rabbitmq.")
-	flag.BoolVar(&burnAfterReading, "burn-after-reading", true,
+	flag.BoolVar(&burnAfterReading, "burn-after-reading", false,
 		"Remove insights configmaps after they have been processed.")
 	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
 		"The cron schedule specifying how often insightType configmaps should be cleared.")
@@ -102,6 +102,12 @@ func main() {
 	mqPass = getEnv("RABBITMQ_PASSWORD", mqPass)
 	mqHost = getEnv("RABBITMQ_ADDRESS", mqHost)
 	mqPort = getEnv("RABBITMQ_PORT", mqPort)
+
+	//Check burn after reading value from environment
+	if getEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
+		log.Printf("Burn-after-reading enabled via environment variable")
+		burnAfterReading = true
+	}
 
 	config := mq.Config{
 		ReconnectDelay: time.Duration(rabbitReconnectRetryInterval) * time.Second,
