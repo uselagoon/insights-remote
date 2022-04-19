@@ -73,12 +73,6 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	//producer, err := r.MessageQ.SyncProducer("lagoon-insights")
-	//if err != nil {
-	//	log.Error(err, "Unable to write to message broker")
-	//	return ctrl.Result{}, err
-	//}
-
 	var sendData = LagoonInsightsMessage{
 		Payload:       configMap.Data,
 		BinaryPayload: configMap.BinaryData,
@@ -110,21 +104,6 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	//write it to the message broker ...
-	//log.Info(configMap.Data["syftoutput"])
-
-	//annotations := configMap.GetAnnotations()
-	//if annotations == nil {
-	//	annotations = map[string]string{}
-	//}
-	//annotations[InsightsUpdatedAnnotationLabel] = time.Now().UTC().String()
-	//configMap.SetAnnotations(annotations)
-	//
-	//if err := r.Update(ctx, &configMap); err != nil {
-	//	log.Error(err, "Unable to update configMap")
-	//	return ctrl.Result{}, err
-	//}
-
 	err = AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
 
 	if err != nil {
@@ -136,6 +115,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 }
 
 func LabelCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap, labelKey string, labelValue string) error {
+	log := log.FromContext(ctx)
 	labels := configMap.GetLabels()
 	if labels == nil {
 		labels = map[string]string{}
@@ -145,13 +125,14 @@ func LabelCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap, l
 	configMap.SetLabels(labels)
 
 	if err := r.Update(ctx, &configMap); err != nil {
-		//log.Error(err, "Unable to update configMap")
+		log.Error(err, "Unable to update configMap - setting labels")
 		return err
 	}
 	return nil
 }
 
 func AnnotateCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap, annotationKey string, annotationValue string) error {
+	log := log.FromContext(ctx)
 	annotations := configMap.GetAnnotations()
 	if annotations == nil {
 		annotations = map[string]string{}
@@ -161,7 +142,7 @@ func AnnotateCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap
 	configMap.SetAnnotations(annotations)
 
 	if err := r.Update(ctx, &configMap); err != nil {
-		//log.Error(err, "Unable to update configMap")
+		log.Error(err, "Unable to update configMap - setting annotations")
 		return err
 	}
 	return nil
