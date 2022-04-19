@@ -28,6 +28,7 @@ import (
 	"log"
 	"os"
 	client2 "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"strconv"
 	"time"
 
@@ -211,49 +212,75 @@ func main() {
 
 	// Set up periodic removal of processed configmaps
 	if burnAfterReading {
-		c := cron.New()
-		c.AddFunc(clearConfigmapCronSched, func() {
-			client := mgr.GetClient()
-			configMapList := &corev1.ConfigMapList{}
-			insightsProcessedRequirement, err := labels.NewRequirement(controllers.InsightsLabel, selection.Exists, []string{})
-			if err != nil {
-				fmt.Printf("bad requirement: %v\n\n", err)
-				return
-			}
-
-			insightsProcessLabelSelector := labels.NewSelector()
-			insightsProcessLabelSelector = insightsProcessLabelSelector.Add(*insightsProcessedRequirement)
-			configMapListOptionSearch := client2.ListOptions{
-				LabelSelector: insightsProcessLabelSelector,
-				Limit:         5,
-			}
-			err = client.List(context.Background(), configMapList, &configMapListOptionSearch)
-			if err != nil {
-				log.Printf("Error getting list of configMaps: %v\n\n", err)
-				return
-			}
-
-			for _, x := range configMapList.Items {
-				//check the annotations
-				if _, okay := x.Annotations[controllers.InsightsUpdatedAnnotationLabel]; okay {
-					//grab the build this is linked to
-					buildName := ""
-					if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
-						buildName = fmt.Sprintf(" (build: '%v')", val)
-					}
-					if err := client.Delete(context.Background(), &x); err != nil {
-						log.Printf("Unable to delete configMap '%v' in ns '%v': %v\n\n", x.Name, x.Namespace, err)
-					} else {
-						log.Printf("Deleted Insights configMap '%v' in ns '%v' %v", x.Name, x.Namespace, buildName)
-					}
-				}
-			}
-		})
-		c.Start()
+		startBurnAfterReadingCron(mgr)
 	}
 
+	startInsightsDeferredClearCron(mgr)
+
+	//+kubebuilder:scaffold:builder
+
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	setupLog.Info("starting manager")
+	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+		setupLog.Error(err, "problem running manager")
+		os.Exit(1)
+	}
+}
+
+func startBurnAfterReadingCron(mgr manager.Manager) {
 	c := cron.New()
 	c.AddFunc(clearConfigmapCronSched, func() {
+		client := mgr.GetClient()
+		configMapList := &corev1.ConfigMapList{}
+		insightsProcessedRequirement, err := labels.NewRequirement(controllers.InsightsLabel, selection.Exists, []string{})
+		if err != nil {
+			fmt.Printf("bad requirement: %v\n\n", err)
+			return
+		}
+
+		insightsProcessLabelSelector := labels.NewSelector()
+		insightsProcessLabelSelector = insightsProcessLabelSelector.Add(*insightsProcessedRequirement)
+		configMapListOptionSearch := client2.ListOptions{
+			LabelSelector: insightsProcessLabelSelector,
+			Limit:         5,
+		}
+		err = client.List(context.Background(), configMapList, &configMapListOptionSearch)
+		if err != nil {
+			log.Printf("Error getting list of configMaps: %v\n\n", err)
+			return
+		}
+
+		for _, x := range configMapList.Items {
+			//check the annotations
+			if _, okay := x.Annotations[controllers.InsightsUpdatedAnnotationLabel]; okay {
+				//grab the build this is linked to
+				buildName := ""
+				if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
+					buildName = fmt.Sprintf(" (build: '%v')", val)
+				}
+				if err := client.Delete(context.Background(), &x); err != nil {
+					log.Printf("Unable to delete configMap '%v' in ns '%v': %v\n\n", x.Name, x.Namespace, err)
+				} else {
+					log.Printf("Deleted Insights configMap '%v' in ns '%v' %v", x.Name, x.Namespace, buildName)
+				}
+			}
+		}
+	})
+	c.Start()
+}
+
+func startInsightsDeferredClearCron(mgr manager.Manager) {
+	c := cron.New()
+	c.AddFunc(clearConfigmapCronSched, func() {
+
 		client := mgr.GetClient()
 		configMapList := &corev1.ConfigMapList{}
 		insightsDeferredRequirement, err := labels.NewRequirement(controllers.InsightsWriteDeferred, selection.Exists, []string{})
@@ -284,7 +311,7 @@ func main() {
 					continue
 				}
 
-				if time.Now().Before(parsed) {
+				if time.Now().After(parsed) {
 					delete(x.Labels, controllers.InsightsWriteDeferred)
 					err = client.Update(context.Background(), &x)
 					if err != nil {
@@ -298,23 +325,6 @@ func main() {
 		}
 	})
 	c.Start()
-
-	//+kubebuilder:scaffold:builder
-
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
-		os.Exit(1)
-	}
-
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
-	}
 }
 
 func getEnv(key, fallback string) string {
