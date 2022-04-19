@@ -57,12 +57,39 @@ var (
 	rabbitReconnectRetryInterval int
 	burnAfterReading             bool
 	clearConfigmapCronSched      string
+	mqConfig                     mq.Config
 )
+
+const BROKER_PRODUCER_NAME = "lagoon-insights"
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
+}
+
+func mqWriteObject(data []byte) error {
+	messageQ, err := mq.New(mqConfig)
+	if err != nil {
+		//TODO: Log useful data here ...
+		return err
+	}
+	defer messageQ.Close()
+
+	producer, err := messageQ.SyncProducer("lagoon-insights")
+	if err != nil {
+		//log.Error(err, "Unable to write to message broker")
+		return err
+	}
+
+	err = producer.Produce(data)
+
+	if err != nil {
+		//log.Error(err, "Unable to write to message broker")
+		return err
+	}
+
+	return nil
 }
 
 func main() {
@@ -109,7 +136,7 @@ func main() {
 		burnAfterReading = true
 	}
 
-	config := mq.Config{
+	mqConfig = mq.Config{
 		ReconnectDelay: time.Duration(rabbitReconnectRetryInterval) * time.Second,
 		Exchanges: mq.Exchanges{
 			{
@@ -150,11 +177,11 @@ func main() {
 		DSN: fmt.Sprintf("amqp://%s:%s@%s/", mqUser, mqPass, mqHost),
 	}
 
-	messageQ, err := mq.New(config)
-	if err != nil {
-		log.Fatalf("Failed to set handler to consumer `%s`: %v", "consumer_name", err)
-		os.Exit(1)
-	}
+	//messageQ, err := mq.New(mqConfig)
+	//if err != nil {
+	//	log.Fatalf("Failed to set handler to consumer `%s`: %v", "consumer_name", err)
+	//	os.Exit(1)
+	//}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
@@ -174,7 +201,7 @@ func main() {
 	if err = (&controllers.ConfigMapReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
-		MessageQ:         messageQ,
+		MessageQWriter:   mqWriteObject,
 		BurnAfterReading: burnAfterReading,
 		WriteToQueue:     mqEnable,
 	}).SetupWithManager(mgr); err != nil {
@@ -224,6 +251,53 @@ func main() {
 		})
 		c.Start()
 	}
+
+	c := cron.New()
+	c.AddFunc(clearConfigmapCronSched, func() {
+		client := mgr.GetClient()
+		configMapList := &corev1.ConfigMapList{}
+		insightsDeferredRequirement, err := labels.NewRequirement(controllers.InsightsWriteDeferred, selection.Exists, []string{})
+		if err != nil {
+			fmt.Printf("bad requirement: %v\n\n", err)
+			return
+		}
+
+		insightsDeferredLabelSelector := labels.NewSelector()
+		insightsDeferredLabelSelector = insightsDeferredLabelSelector.Add(*insightsDeferredRequirement)
+		configMapListOptionSearch := client2.ListOptions{
+			LabelSelector: insightsDeferredLabelSelector,
+			Limit:         5,
+		}
+		err = client.List(context.Background(), configMapList, &configMapListOptionSearch)
+		if err != nil {
+			log.Printf("Error getting list of configMaps: %v\n\n", err)
+			return
+		}
+
+		for _, x := range configMapList.Items {
+			//check the labels
+			if writeDeferredVal, okay := x.Labels[controllers.InsightsWriteDeferred]; okay {
+				writeDeferredValTS, _ := strconv.ParseInt(writeDeferredVal, 10, 32)
+				parsed := time.Unix(writeDeferredValTS, 0)
+				if err != nil {
+					log.Printf("Unable to parse string '%v' for '%v' in ns '%v': %v\n\n", writeDeferredVal, x.Name, x.Namespace, err)
+					continue
+				}
+
+				if time.Now().Before(parsed) {
+					delete(x.Labels, controllers.InsightsWriteDeferred)
+					err = client.Update(context.Background(), &x)
+					if err != nil {
+						log.Printf("Unable to update configmap '%v' for '%v' in ns '%v': %v\n\n", x.Name, x.Name, x.Namespace, err)
+						continue
+					}
+
+					log.Printf("Removed write deferred date '%v' for '%v' in ns '%v'\n\n", writeDeferredVal, x.Name, x.Namespace)
+				}
+			}
+		}
+	})
+	c.Start()
 
 	//+kubebuilder:scaffold:builder
 

@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: game-demo
   labels:
-    lagoon.sh/insights: sbom
+    lagoon.sh/insightsType: sbom
 data:
   # property-like keys; each key maps to a simple value
   player_initial_lives: "3"

@@ -19,7 +19,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"github.com/cheshir/go-mq"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -28,11 +27,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"strconv"
 	"time"
 )
 
 const InsightsLabel = "lagoon.sh/insightsType"
 const InsightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
+const InsightsWriteDeferred = "lagoon.sh/insightsWriteDeferred"
 
 type LagoonInsightsMessage struct {
 	Payload       map[string]string `json:"payload"`
@@ -45,7 +46,7 @@ type LagoonInsightsMessage struct {
 type ConfigMapReconciler struct {
 	client.Client
 	Scheme           *runtime.Scheme
-	MessageQ         mq.MQ
+	MessageQWriter   func(data []byte) error
 	WriteToQueue     bool
 	BurnAfterReading bool
 }
@@ -72,11 +73,11 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	producer, err := r.MessageQ.SyncProducer("lagoon-insights")
-	if err != nil {
-		log.Error(err, "Unable to write to message broker")
-		return ctrl.Result{}, err
-	}
+	//producer, err := r.MessageQ.SyncProducer("lagoon-insights")
+	//if err != nil {
+	//	log.Error(err, "Unable to write to message broker")
+	//	return ctrl.Result{}, err
+	//}
 
 	var sendData = LagoonInsightsMessage{
 		Payload:       configMap.Data,
@@ -91,29 +92,79 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	err = producer.Produce(marshalledData)
+	err = r.MessageQWriter(marshalledData)
 
 	if err != nil {
 		log.Error(err, "Unable to write to message broker")
+
+		//In this case what we want to do is defer the processing to a couple minutes from now
+		future := time.Minute * 5
+		futureTime := time.Now().Add(future).Unix()
+		err = LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
+
+		if err != nil {
+			log.Error(err, "Unable to update configmap")
+			return ctrl.Result{}, err
+		}
+
 		return ctrl.Result{}, err
 	}
 
 	//write it to the message broker ...
 	//log.Info(configMap.Data["syftoutput"])
 
-	annotations := configMap.GetAnnotations()
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-	annotations[InsightsUpdatedAnnotationLabel] = time.Now().UTC().String()
-	configMap.SetAnnotations(annotations)
+	//annotations := configMap.GetAnnotations()
+	//if annotations == nil {
+	//	annotations = map[string]string{}
+	//}
+	//annotations[InsightsUpdatedAnnotationLabel] = time.Now().UTC().String()
+	//configMap.SetAnnotations(annotations)
+	//
+	//if err := r.Update(ctx, &configMap); err != nil {
+	//	log.Error(err, "Unable to update configMap")
+	//	return ctrl.Result{}, err
+	//}
 
-	if err := r.Update(ctx, &configMap); err != nil {
-		log.Error(err, "Unable to update configMap")
+	err = AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
+
+	if err != nil {
+		log.Error(err, "Unable to update configmap")
 		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
+}
+
+func LabelCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap, labelKey string, labelValue string) error {
+	labels := configMap.GetLabels()
+	if labels == nil {
+		labels = map[string]string{}
+	}
+
+	labels[labelKey] = labelValue
+	configMap.SetLabels(labels)
+
+	if err := r.Update(ctx, &configMap); err != nil {
+		//log.Error(err, "Unable to update configMap")
+		return err
+	}
+	return nil
+}
+
+func AnnotateCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap, annotationKey string, annotationValue string) error {
+	annotations := configMap.GetAnnotations()
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+
+	annotations[annotationKey] = annotationValue
+	configMap.SetAnnotations(annotations)
+
+	if err := r.Update(ctx, &configMap); err != nil {
+		//log.Error(err, "Unable to update configMap")
+		return err
+	}
+	return nil
 }
 
 // Let's set up a predicate that filters out anything without a particular label AND
@@ -121,28 +172,34 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 func insightLabelsOnlyPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
-			for k, v := range event.Object.GetLabels() {
-				if (k == InsightsLabel || v == InsightsLabel) && insightsProcessedAnnotationExists(event.Object) != true {
-					//fmt.Println("Got one that should be processed " + event.Object.GetName())
-					return true
-				}
+			if labelExists(InsightsLabel, event.Object) &&
+				!labelExists(InsightsWriteDeferred, event.Object) &&
+				!insightsProcessedAnnotationExists(event.Object) {
+				return true
 			}
 			return false
 		},
 		UpdateFunc: func(event event.UpdateEvent) bool {
-
-			for k, v := range event.ObjectNew.GetLabels() {
-				if (k == InsightsLabel || v == InsightsLabel) && insightsProcessedAnnotationExists(event.ObjectNew) != true {
-					return true
-				}
+			if labelExists(InsightsLabel, event.ObjectNew) &&
+				!labelExists(InsightsWriteDeferred, event.ObjectNew) &&
+				!insightsProcessedAnnotationExists(event.ObjectNew) {
+				return true
 			}
-
 			return false
 		},
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
 			return false
 		},
 	}
+}
+
+func labelExists(label string, event client.Object) bool {
+	for k, v := range event.GetLabels() {
+		if k == label || v == label {
+			return true
+		}
+	}
+	return false
 }
 
 func insightsProcessedAnnotationExists(eventObject client.Object) bool {
