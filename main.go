@@ -61,8 +61,6 @@ var (
 	mqConfig                     mq.Config
 )
 
-const BROKER_PRODUCER_NAME = "lagoon-insights"
-
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
@@ -177,12 +175,6 @@ func main() {
 		},
 		DSN: fmt.Sprintf("amqp://%s:%s@%s/", mqUser, mqPass, mqHost),
 	}
-
-	//messageQ, err := mq.New(mqConfig)
-	//if err != nil {
-	//	log.Fatalf("Failed to set handler to consumer `%s`: %v", "consumer_name", err)
-	//	os.Exit(1)
-	//}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
