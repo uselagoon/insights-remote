@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
+	"lagoon.sh/insights-remote/cmlib"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -94,7 +95,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		//In this case what we want to do is defer the processing to a couple minutes from now
 		future := time.Minute * 5
 		futureTime := time.Now().Add(future).Unix()
-		err = LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
+		err = cmlib.LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
 
 		if err != nil {
 			log.Error(err, "Unable to update configmap")
@@ -104,7 +105,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	err = AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
+	err = cmlib.AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
 
 	if err != nil {
 		log.Error(err, "Unable to update configmap")
@@ -112,40 +113,6 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	return ctrl.Result{}, nil
-}
-
-func LabelCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap, labelKey string, labelValue string) error {
-	log := log.FromContext(ctx)
-	labels := configMap.GetLabels()
-	if labels == nil {
-		labels = map[string]string{}
-	}
-
-	labels[labelKey] = labelValue
-	configMap.SetLabels(labels)
-
-	if err := r.Update(ctx, &configMap); err != nil {
-		log.Error(err, "Unable to update configMap - setting labels")
-		return err
-	}
-	return nil
-}
-
-func AnnotateCM(ctx context.Context, r client.Client, configMap corev1.ConfigMap, annotationKey string, annotationValue string) error {
-	log := log.FromContext(ctx)
-	annotations := configMap.GetAnnotations()
-	if annotations == nil {
-		annotations = map[string]string{}
-	}
-
-	annotations[annotationKey] = annotationValue
-	configMap.SetAnnotations(annotations)
-
-	if err := r.Update(ctx, &configMap); err != nil {
-		log.Error(err, "Unable to update configMap - setting annotations")
-		return err
-	}
-	return nil
 }
 
 // Let's set up a predicate that filters out anything without a particular label AND
