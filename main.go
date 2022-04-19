@@ -84,7 +84,6 @@ func mqWriteObject(data []byte) error {
 	err = producer.Produce(data)
 
 	if err != nil {
-		//log.Error(err, "Unable to write to message broker")
 		return err
 	}
 
