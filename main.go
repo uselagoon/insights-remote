@@ -28,6 +28,7 @@ import (
 	"log"
 	"os"
 	client2 "sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"strconv"
 	"time"
 
@@ -57,12 +58,36 @@ var (
 	rabbitReconnectRetryInterval int
 	burnAfterReading             bool
 	clearConfigmapCronSched      string
+	mqConfig                     mq.Config
 )
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	//+kubebuilder:scaffold:scheme
+}
+
+func mqWriteObject(data []byte) error {
+	messageQ, err := mq.New(mqConfig)
+	if err != nil {
+		//TODO: Log useful data here ...
+		return err
+	}
+	defer messageQ.Close()
+
+	producer, err := messageQ.SyncProducer("lagoon-insights")
+	if err != nil {
+		//log.Error(err, "Unable to write to message broker")
+		return err
+	}
+
+	err = producer.Produce(data)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func main() {
@@ -109,7 +134,7 @@ func main() {
 		burnAfterReading = true
 	}
 
-	config := mq.Config{
+	mqConfig = mq.Config{
 		ReconnectDelay: time.Duration(rabbitReconnectRetryInterval) * time.Second,
 		Exchanges: mq.Exchanges{
 			{
@@ -150,12 +175,6 @@ func main() {
 		DSN: fmt.Sprintf("amqp://%s:%s@%s/", mqUser, mqPass, mqHost),
 	}
 
-	messageQ, err := mq.New(config)
-	if err != nil {
-		log.Fatalf("Failed to set handler to consumer `%s`: %v", "consumer_name", err)
-		os.Exit(1)
-	}
-
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
@@ -174,7 +193,7 @@ func main() {
 	if err = (&controllers.ConfigMapReconciler{
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
-		MessageQ:         messageQ,
+		MessageQWriter:   mqWriteObject,
 		BurnAfterReading: burnAfterReading,
 		WriteToQueue:     mqEnable,
 	}).SetupWithManager(mgr); err != nil {
@@ -184,46 +203,10 @@ func main() {
 
 	// Set up periodic removal of processed configmaps
 	if burnAfterReading {
-		c := cron.New()
-		c.AddFunc(clearConfigmapCronSched, func() {
-			client := mgr.GetClient()
-			configMapList := &corev1.ConfigMapList{}
-			insightsProcessedRequirement, err := labels.NewRequirement(controllers.InsightsLabel, selection.Exists, []string{})
-			if err != nil {
-				fmt.Printf("bad requirement: %v\n\n", err)
-				return
-			}
-
-			insightsProcessLabelSelector := labels.NewSelector()
-			insightsProcessLabelSelector = insightsProcessLabelSelector.Add(*insightsProcessedRequirement)
-			configMapListOptionSearch := client2.ListOptions{
-				LabelSelector: insightsProcessLabelSelector,
-				Limit:         5,
-			}
-			err = client.List(context.Background(), configMapList, &configMapListOptionSearch)
-			if err != nil {
-				log.Printf("Error getting list of configMaps: %v\n\n", err)
-				return
-			}
-
-			for _, x := range configMapList.Items {
-				//check the annotations
-				if _, okay := x.Annotations[controllers.InsightsUpdatedAnnotationLabel]; okay {
-					//grab the build this is linked to
-					buildName := ""
-					if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
-						buildName = fmt.Sprintf(" (build: '%v')", val)
-					}
-					if err := client.Delete(context.Background(), &x); err != nil {
-						log.Printf("Unable to delete configMap '%v' in ns '%v': %v\n\n", x.Name, x.Namespace, err)
-					} else {
-						log.Printf("Deleted Insights configMap '%v' in ns '%v' %v", x.Name, x.Namespace, buildName)
-					}
-				}
-			}
-		})
-		c.Start()
+		startBurnAfterReadingCron(mgr)
 	}
+
+	startInsightsDeferredClearCron(mgr)
 
 	//+kubebuilder:scaffold:builder
 
@@ -241,6 +224,98 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func startBurnAfterReadingCron(mgr manager.Manager) {
+	c := cron.New()
+	c.AddFunc(clearConfigmapCronSched, func() {
+		client := mgr.GetClient()
+		configMapList := &corev1.ConfigMapList{}
+		insightsProcessedRequirement, err := labels.NewRequirement(controllers.InsightsLabel, selection.Exists, []string{})
+		if err != nil {
+			fmt.Printf("bad requirement: %v\n\n", err)
+			return
+		}
+
+		insightsProcessLabelSelector := labels.NewSelector()
+		insightsProcessLabelSelector = insightsProcessLabelSelector.Add(*insightsProcessedRequirement)
+		configMapListOptionSearch := client2.ListOptions{
+			LabelSelector: insightsProcessLabelSelector,
+			Limit:         5,
+		}
+		err = client.List(context.Background(), configMapList, &configMapListOptionSearch)
+		if err != nil {
+			log.Printf("Error getting list of configMaps: %v\n\n", err)
+			return
+		}
+
+		for _, x := range configMapList.Items {
+			//check the annotations
+			if _, okay := x.Annotations[controllers.InsightsUpdatedAnnotationLabel]; okay {
+				//grab the build this is linked to
+				buildName := ""
+				if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
+					buildName = fmt.Sprintf(" (build: '%v')", val)
+				}
+				if err := client.Delete(context.Background(), &x); err != nil {
+					log.Printf("Unable to delete configMap '%v' in ns '%v': %v\n\n", x.Name, x.Namespace, err)
+				} else {
+					log.Printf("Deleted Insights configMap '%v' in ns '%v' %v", x.Name, x.Namespace, buildName)
+				}
+			}
+		}
+	})
+	c.Start()
+}
+
+func startInsightsDeferredClearCron(mgr manager.Manager) {
+	c := cron.New()
+	c.AddFunc(clearConfigmapCronSched, func() {
+
+		client := mgr.GetClient()
+		configMapList := &corev1.ConfigMapList{}
+		insightsDeferredRequirement, err := labels.NewRequirement(controllers.InsightsWriteDeferred, selection.Exists, []string{})
+		if err != nil {
+			fmt.Printf("bad requirement: %v\n\n", err)
+			return
+		}
+
+		insightsDeferredLabelSelector := labels.NewSelector()
+		insightsDeferredLabelSelector = insightsDeferredLabelSelector.Add(*insightsDeferredRequirement)
+		configMapListOptionSearch := client2.ListOptions{
+			LabelSelector: insightsDeferredLabelSelector,
+			Limit:         5,
+		}
+		err = client.List(context.Background(), configMapList, &configMapListOptionSearch)
+		if err != nil {
+			log.Printf("Error getting list of configMaps: %v\n\n", err)
+			return
+		}
+
+		for _, x := range configMapList.Items {
+			//check the labels
+			if writeDeferredVal, okay := x.Labels[controllers.InsightsWriteDeferred]; okay {
+				writeDeferredValTS, _ := strconv.ParseInt(writeDeferredVal, 10, 32)
+				parsed := time.Unix(writeDeferredValTS, 0)
+				if err != nil {
+					log.Printf("Unable to parse string '%v' for '%v' in ns '%v': %v\n\n", writeDeferredVal, x.Name, x.Namespace, err)
+					continue
+				}
+
+				if time.Now().After(parsed) {
+					delete(x.Labels, controllers.InsightsWriteDeferred)
+					err = client.Update(context.Background(), &x)
+					if err != nil {
+						log.Printf("Unable to update configmap '%v' for '%v' in ns '%v': %v\n\n", x.Name, x.Name, x.Namespace, err)
+						continue
+					}
+
+					log.Printf("Removed write deferred date '%v' for '%v' in ns '%v'\n\n", writeDeferredVal, x.Name, x.Namespace)
+				}
+			}
+		}
+	})
+	c.Start()
 }
 
 func getEnv(key, fallback string) string {
