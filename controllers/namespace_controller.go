@@ -18,9 +18,11 @@ package controllers
 
 import (
 	"context"
+	"fmt"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"lagoon.sh/insights-remote/internal/tokens"
+	"k8s.io/apimachinery/pkg/selection"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -31,6 +33,8 @@ type NamespaceReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 }
+
+const insightsTokenLabel = "lagoon.sh/insights-token"
 
 //+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=namespaces/status,verbs=get;update;patch
@@ -54,8 +58,37 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	token, _ := tokens.GenerateTokenForNamespace("blah", ns.Name)
-	log.Info(token)
+	// TODO: check for token secret - if it doesn't exist, generate it
+	// if it does exist, validate it, and if that fails, recreate it.
+
+	secretList := &corev1.SecretList{}
+
+	labelSelectorParameters, err := labels.NewRequirement(insightsTokenLabel, selection.Exists, []string{})
+
+	if err != nil {
+		log.Error(err, fmt.Sprintf("bad requirement: %v\n\n", err))
+	}
+
+	labelSelector := labels.NewSelector()
+	labelSelector = labelSelector.Add(*labelSelectorParameters)
+
+	listOptions := client.ListOptions{
+		LabelSelector: labelSelector,
+		Namespace:     ns.GetName(),
+	}
+	//r.Get(ctx, "insightsNamespaceToken", secret)
+	err = r.Client.List(ctx, secretList, &listOptions)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	//foundItem := false
+	for _, v := range secretList.Items {
+		log.Info(fmt.Sprintf("Found secret with name '%v' and namespace '%v'", v.Name, v.Namespace))
+
+		// let's verify this to make sure it looks good
+
+	}
 
 	return ctrl.Result{}, nil
 }
