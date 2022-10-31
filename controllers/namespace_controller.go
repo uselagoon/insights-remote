@@ -20,9 +20,11 @@ import (
 	"context"
 	"fmt"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/selection"
+	"lagoon.sh/insights-remote/internal/tokens"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -31,7 +33,8 @@ import (
 // NamespaceReconciler reconciles a Namespace object
 type NamespaceReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme            *runtime.Scheme
+	InsightsJWTSecret string
 }
 
 const insightsTokenLabel = "lagoon.sh/insights-token"
@@ -58,9 +61,6 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	// TODO: check for token secret - if it doesn't exist, generate it
-	// if it does exist, validate it, and if that fails, recreate it.
-
 	secretList := &corev1.SecretList{}
 
 	labelSelectorParameters, err := labels.NewRequirement(insightsTokenLabel, selection.Exists, []string{})
@@ -82,12 +82,62 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, err
 	}
 
-	//foundItem := false
+	foundItem := false
+	deleteSecretMessage := ""
 	for _, v := range secretList.Items {
 		log.Info(fmt.Sprintf("Found secret with name '%v' and namespace '%v'", v.Name, v.Namespace))
-
 		// let's verify this to make sure it looks good
+		if val, ok := v.Data["INSIGHTS_TOKEN"]; ok {
+			//log.Info(fmt.Sprintf("Got value of '%v'", string(val)))
+			namespace, err := tokens.ValidateAndExtractNamespaceFromToken(r.InsightsJWTSecret, string(val))
+			if err != nil {
+				log.Error(err, "Unable to decode token")
+				return ctrl.Result{}, err
+			}
+			if namespace != ns.GetName() {
+				deleteSecretMessage = fmt.Sprintf("Token is invalid - namespaces '%v'!='%v'.", ns.GetName(), namespace)
+			}
+			foundItem = true
+		} else {
+			//we delete this secret straight
+			deleteSecretMessage = "key INSIGHTS_TOKEN does not exist. Secret is invalid."
+		}
+		if deleteSecretMessage != "" {
+			log.Info(fmt.Sprintf("Removing secret '%v':'%v' - %v", ns.GetName(), v.Name, deleteSecretMessage))
+			err = r.Client.Delete(ctx, &v)
+			if err != nil {
+				log.Error(err, "Unable to delete secret")
+				return ctrl.Result{}, err
+			}
+		}
+	}
 
+	if !foundItem { //let's create the token and secret
+		log.Info("Going to generate token")
+		jwt, err := tokens.GenerateTokenForNamespace(r.InsightsJWTSecret, ns.GetName())
+		if err != nil {
+			log.Error(err, "Unable to generate jwt for namespace '%v'", ns.GetName())
+		}
+
+		newSecret := corev1.Secret{
+			ObjectMeta: v1.ObjectMeta{
+				Name:      "insights-token",
+				Namespace: ns.GetName(),
+				Labels: map[string]string{
+					insightsTokenLabel: "true",
+				},
+			},
+			Immutable: nil,
+			Data: map[string][]byte{
+				"INSIGHTS_TOKEN": []byte(jwt),
+			},
+		}
+		err = r.Client.Create(ctx, &newSecret)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+	} else {
+		log.Info("Apparently it exists?")
 	}
 
 	return ctrl.Result{}, nil

@@ -210,8 +210,9 @@ func main() {
 	startInsightsDeferredClearCron(mgr)
 
 	if err = (&controllers.NamespaceReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:            mgr.GetClient(),
+		Scheme:            mgr.GetScheme(),
+		InsightsJWTSecret: "testsecret", //TODO: fill this from command line args
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 		os.Exit(1)
