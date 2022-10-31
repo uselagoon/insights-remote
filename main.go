@@ -60,6 +60,7 @@ var (
 	burnAfterReading             bool
 	clearConfigmapCronSched      string
 	mqConfig                     mq.Config
+	insightsTokenSecret          string
 )
 
 func init() {
@@ -116,6 +117,10 @@ func main() {
 		"Remove insights configmaps after they have been processed.")
 	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
 		"The cron schedule specifying how often insightType configmaps should be cleared.")
+
+	flag.StringVar(&insightsTokenSecret, "insights-token-secret", "testsecret",
+		"The secret used to create the insights tokens used to communicate back to the webservice (can be set with env var INSIGHTS_TOKEN_SECRET).")
+	insightsTokenSecret = getEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
 
 	opts := zap.Options{
 		Development: true,
@@ -212,7 +217,7 @@ func main() {
 	if err = (&controllers.NamespaceReconciler{
 		Client:            mgr.GetClient(),
 		Scheme:            mgr.GetScheme(),
-		InsightsJWTSecret: "testsecret", //TODO: fill this from command line args
+		InsightsJWTSecret: insightsTokenSecret,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 		os.Exit(1)

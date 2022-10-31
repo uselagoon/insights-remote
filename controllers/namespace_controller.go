@@ -113,7 +113,6 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !foundItem { //let's create the token and secret
-		log.Info("Going to generate token")
 		jwt, err := tokens.GenerateTokenForNamespace(r.InsightsJWTSecret, ns.GetName())
 		if err != nil {
 			log.Error(err, "Unable to generate jwt for namespace '%v'", ns.GetName())
@@ -136,8 +135,6 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-	} else {
-		log.Info("Apparently it exists?")
 	}
 
 	return ctrl.Result{}, nil
