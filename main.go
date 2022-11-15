@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"lagoon.sh/insights-remote/internal/service"
 	"log"
 	"os"
 	"strconv"
@@ -61,6 +62,11 @@ var (
 	clearConfigmapCronSched      string
 	mqConfig                     mq.Config
 	insightsTokenSecret          string
+	enableNSReconciler           bool
+	enableCMReconciler           bool
+	enableInsightDeferred        bool //TODO: Better names for this
+	enableWebservice             bool
+	webservicePort               string
 )
 
 func init() {
@@ -121,6 +127,20 @@ func main() {
 	flag.StringVar(&insightsTokenSecret, "insights-token-secret", "testsecret",
 		"The secret used to create the insights tokens used to communicate back to the webservice (can be set with env var INSIGHTS_TOKEN_SECRET).")
 	insightsTokenSecret = getEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
+
+	flag.BoolVar(&enableCMReconciler, "enable-configmap-reconciler", false,
+		"Enable the configmap reconciler.")
+
+	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", false,
+		"enable-namespace-reconciler.")
+
+	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
+		"TODO give this a proper explanation.")
+
+	flag.BoolVar(&enableWebservice, "enable-webservice", true,
+		"Enables json endpoint for writing insights data.")
+
+	flag.StringVar(&webservicePort, "webservice-port", "8080", "Port on which we expose the JSON webservice.")
 
 	opts := zap.Options{
 		Development: true,
@@ -196,32 +216,54 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.ConfigMapReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		MessageQWriter:   mqWriteObject,
-		BurnAfterReading: burnAfterReading,
-		WriteToQueue:     mqEnable,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
-		os.Exit(1)
+	if enableCMReconciler {
+		if err = (&controllers.ConfigMapReconciler{
+			Client:           mgr.GetClient(),
+			Scheme:           mgr.GetScheme(),
+			MessageQWriter:   mqWriteObject,
+			BurnAfterReading: burnAfterReading,
+			WriteToQueue:     mqEnable,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("CM Reconciler disabled - skipping")
 	}
 
 	// Set up periodic removal of processed configmaps
 	if burnAfterReading {
 		startBurnAfterReadingCron(mgr)
+	} else {
+		log.Printf("Burn after reading disabled - skipping")
 	}
 
-	startInsightsDeferredClearCron(mgr)
-
-	if err = (&controllers.NamespaceReconciler{
-		Client:            mgr.GetClient(),
-		Scheme:            mgr.GetScheme(),
-		InsightsJWTSecret: insightsTokenSecret,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "Namespace")
-		os.Exit(1)
+	if enableInsightDeferred {
+		startInsightsDeferredClearCron(mgr)
+	} else {
+		log.Printf("Insights deferred disabled - skipping")
 	}
+
+	if enableNSReconciler {
+		if err = (&controllers.NamespaceReconciler{
+			Client:            mgr.GetClient(),
+			Scheme:            mgr.GetScheme(),
+			InsightsJWTSecret: insightsTokenSecret,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Namespace")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("Namespace reconciler disabled - skipping")
+	}
+
+	if enableWebservice {
+		log.Println("Enabling JSON endpoint ...")
+		startInsightsEndpoint(mgr)
+	} else {
+		log.Printf("Namespace reconciler disabled - skipping")
+	}
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -330,6 +372,11 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 		}
 	})
 	c.Start()
+}
+
+func startInsightsEndpoint(mgr manager.Manager) {
+	router := service.SetupRouter(insightsTokenSecret)
+	go router.Run(fmt.Sprintf(":%v", webservicePort))
 }
 
 func getEnv(key, fallback string) string {
