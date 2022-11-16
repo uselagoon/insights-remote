@@ -172,7 +172,7 @@ func main() {
 				},
 			},
 		},
-		DSN: fmt.Sprintf("amqp://%s:%s@%s/", mqUser, mqPass, mqHost),
+		DSN: fmt.Sprintf("amqp://%s:%s@%s", mqUser, mqPass, mqHost),
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
