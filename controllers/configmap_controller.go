@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
+	messages_v1 "lagoon.sh/insights-remote/api/v1"
 	"lagoon.sh/insights-remote/cmlib"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,14 +68,13 @@ type ConfigMapReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
 func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
-
 	var configMap corev1.ConfigMap
 	if err := r.Get(ctx, req.NamespacedName, &configMap); err != nil {
 		log.Error(err, "Unable to load configMap")
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	var sendData = LagoonInsightsMessage{
+	var sendData = messages_v1.LagoonInsightsMessage{
 		Payload:       configMap.Data,
 		BinaryPayload: configMap.BinaryData,
 		Annotations:   configMap.Annotations,
