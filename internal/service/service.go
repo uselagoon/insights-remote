@@ -45,9 +45,9 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 
 	fmt.Println("Going to write to namespace ", namespace)
 
-	deets := &internal.Facts{}
+	details := &internal.Facts{}
 
-	if err = c.ShouldBindJSON(deets); err != nil {
+	if err = c.ShouldBindJSON(details); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status":  "Unable to parse incoming data",
 			"message": err.Error(),
