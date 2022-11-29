@@ -37,13 +37,6 @@ const InsightsLabel = "lagoon.sh/insightsType"
 const InsightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
 const InsightsWriteDeferred = "lagoon.sh/insightsWriteDeferred"
 
-type LagoonInsightsMessage struct {
-	Payload       map[string]string `json:"payload"`
-	BinaryPayload map[string][]byte `json:"binaryPayload"`
-	Annotations   map[string]string `json:"annotations"`
-	Labels        map[string]string `json:"labels"`
-}
-
 // ConfigMapReconciler reconciles a ConfigMap object
 type ConfigMapReconciler struct {
 	client.Client
