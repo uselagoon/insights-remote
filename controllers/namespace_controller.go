@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,7 +28,9 @@ import (
 	"lagoon.sh/insights-remote/internal/tokens"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // NamespaceReconciler reconciles a Namespace object
@@ -89,13 +92,14 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// let's verify this to make sure it looks good
 		if val, ok := v.Data["INSIGHTS_TOKEN"]; ok {
 			//log.Info(fmt.Sprintf("Got value of '%v'", string(val)))
-			namespace, err := tokens.ValidateAndExtractNamespaceFromToken(r.InsightsJWTSecret, string(val))
+			namespaceDetails, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.InsightsJWTSecret, string(val))
+
 			if err != nil {
 				log.Error(err, "Unable to decode token")
 				return ctrl.Result{}, err
 			}
-			if namespace != ns.GetName() {
-				deleteSecretMessage = fmt.Sprintf("Token is invalid - namespaces '%v'!='%v'.", ns.GetName(), namespace)
+			if namespaceDetails.Namespace != ns.GetName() {
+				deleteSecretMessage = fmt.Sprintf("Token is invalid - namespaces '%v'!='%v'.", ns.GetName(), namespaceDetails.Namespace)
 			}
 			foundItem = true
 		} else {
@@ -113,7 +117,25 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if !foundItem { //let's create the token and secret
-		jwt, err := tokens.GenerateTokenForNamespace(r.InsightsJWTSecret, ns.GetName())
+		labels := ns.GetLabels()
+		environmentId, err := getValueFromMap(labels, "lagoon.sh/environmentId")
+		if err != nil {
+			return ctrl.Result{}, errors.New("Unable to find lagoon.sh/environmentId label in namespace " + ns.GetName() + " failed creating insights token")
+		}
+		projectName, err := getValueFromMap(labels, "lagoon.sh/project")
+		if err != nil {
+			return ctrl.Result{}, errors.New("Unable to find lagoon.sh/project label in namespace" + ns.GetName() + " failed creating insights token")
+		}
+		environmentName, err := getValueFromMap(labels, "lagoon.sh/environment")
+		if err != nil {
+			return ctrl.Result{}, errors.New("Unable to find lagoon.sh/environment label in namespace " + ns.GetName() + " failed creating insights token")
+		}
+		jwt, err := tokens.GenerateTokenForNamespace(r.InsightsJWTSecret, tokens.NamespaceDetails{
+			Namespace:       ns.GetName(),
+			EnvironmentId:   environmentId,
+			ProjectName:     projectName,
+			EnvironmentName: environmentName,
+		})
 		if err != nil {
 			log.Error(err, "Unable to generate jwt for namespace '%v'", ns.GetName())
 		}
@@ -140,9 +162,61 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	return ctrl.Result{}, nil
 }
 
+func getValueFromMap(labels map[string]string, key string) (string, error) {
+	if v, okay := labels[key]; !okay {
+		return "", errors.New("key not found")
+	} else {
+		return v, nil
+	}
+}
+
+func activeNamespacePredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event event.CreateEvent) bool {
+			labels := event.Object.GetLabels()
+			_, err := getValueFromMap(labels, "lagoon.sh/environmentId")
+			if err != nil {
+				return false
+			}
+			_, err = getValueFromMap(labels, "lagoon.sh/project")
+			if err != nil {
+				return false
+			}
+			_, err = getValueFromMap(labels, "lagoon.sh/environment")
+			if err != nil {
+				return false
+			}
+			return true
+		},
+		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
+			return false
+		},
+		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
+			labels := updateEvent.ObjectNew.GetLabels()
+			_, err := getValueFromMap(labels, "lagoon.sh/environmentId")
+			if err != nil {
+				return false
+			}
+			_, err = getValueFromMap(labels, "lagoon.sh/project")
+			if err != nil {
+				return false
+			}
+			_, err = getValueFromMap(labels, "lagoon.sh/environment")
+			if err != nil {
+				return false
+			}
+			return true
+		},
+		GenericFunc: func(genericEvent event.GenericEvent) bool {
+			return false
+		},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Namespace{}).
+		WithEventFilter(activeNamespacePredicate()).
 		Complete(r)
 }

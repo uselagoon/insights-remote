@@ -6,16 +6,26 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 )
 
-func GenerateTokenForNamespace(secret, namespaceName string) (string, error) {
+type NamespaceDetails struct {
+	Namespace       string
+	EnvironmentId   string
+	ProjectName     string
+	EnvironmentName string
+}
+
+func GenerateTokenForNamespace(secret string, details NamespaceDetails) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"namespace": namespaceName,
+		"Namespace":       details.Namespace,
+		"EnvironmentId":   details.EnvironmentId,
+		"ProjectName":     details.ProjectName,
+		"EnvironmentName": details.EnvironmentName,
 	})
 	// Sign and get the complete encoded token as a string using the secret
 	tokenString, err := token.SignedString([]byte(secret))
 	return tokenString, err
 }
 
-func ValidateAndExtractNamespaceFromToken(key, token string) (string, error) {
+func ValidateAndExtractNamespaceDetailsFromToken(key, token string) (NamespaceDetails, error) {
 
 	outToken, err := jwt.Parse(token, func(token *jwt.Token) (interface{}, error) {
 		// Don't forget to validate the alg is what you expect:
@@ -26,14 +36,31 @@ func ValidateAndExtractNamespaceFromToken(key, token string) (string, error) {
 		return []byte(key), nil
 	})
 
+	ret := NamespaceDetails{}
+
 	if claims, ok := outToken.Claims.(jwt.MapClaims); ok && outToken.Valid {
-		if namespaceName, ok := claims["namespace"]; ok {
-			return fmt.Sprintf("%v", namespaceName), nil
+		if namespaceId, ok := claims["EnvironmentId"]; ok {
+			//return fmt.Sprintf("%v", EnvironmentId), nil
+			ret.EnvironmentId = fmt.Sprintf("%v", namespaceId)
 		} else {
-			return "", errors.New("Unable to find key 'namespace' in valid token")
+			return ret, errors.New("Unable to find key 'EnvironmentId' in valid token")
 		}
 
+		if environmentName, ok := claims["EnvironmentName"]; ok {
+			//return fmt.Sprintf("%v", EnvironmentId), nil
+			ret.EnvironmentName = fmt.Sprintf("%v", environmentName)
+		} else {
+			return ret, errors.New("Unable to find key 'EnvironmentName' in valid token")
+		}
+
+		if projectName, ok := claims["ProjectName"]; ok {
+			//return fmt.Sprintf("%v", EnvironmentId), nil
+			ret.ProjectName = fmt.Sprintf("%v", projectName)
+		} else {
+			return ret, errors.New("Unable to find key 'ProjectName' in valid token")
+		}
 	} else {
-		return "", err
+		return ret, err
 	}
+	return ret, nil
 }

@@ -1,91 +1,86 @@
 package tokens
 
 import (
+	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 func TestGenerateTokenForNamespace(t *testing.T) {
 	type args struct {
-		secret        string
-		namespaceName string
+		secret  string
+		details NamespaceDetails
 	}
 	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
+		name          string
+		args          args
+		want          NamespaceDetails
+		wantErr       bool
+		wantCompError bool
 	}{
 		{
-			name: "Simple token gen test",
+			name: "simple passing test",
 			args: args{
-				secret:        "testsecret",
-				namespaceName: "testNsName",
+				secret: "testing",
+				details: NamespaceDetails{
+					Namespace:       "Namespace",
+					EnvironmentId:   "1",
+					ProjectName:     "Project",
+					EnvironmentName: "Environment",
+				},
 			},
-			want:    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lc3BhY2UiOiJ0ZXN0TnNOYW1lIn0.jxNjQIaXtDeaU2_yRLssGXwe39YF38SPJqMDJ9UW63k",
-			wantErr: false,
+			want: NamespaceDetails{
+				Namespace:       "Namespace",
+				EnvironmentId:   "1",
+				ProjectName:     "Project",
+				EnvironmentName: "Environment",
+			},
+		},
+		{
+			name: "simple failing test",
+			args: args{
+				secret: "testing",
+				details: NamespaceDetails{
+					Namespace:       "Namespace",
+					EnvironmentId:   "1",
+					ProjectName:     "Project",
+					EnvironmentName: "Environment",
+				},
+			},
+			want: NamespaceDetails{
+				EnvironmentId:   "1",
+				ProjectName:     "nope",
+				EnvironmentName: "nope",
+			},
+			wantCompError: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := GenerateTokenForNamespace(tt.args.secret, tt.args.namespaceName)
+			token, err := GenerateTokenForNamespace(tt.args.secret, tt.args.details)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GenerateTokenForNamespace() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if got != tt.want {
-				t.Errorf("GenerateTokenForNamespace() got = %v, want %v", got, tt.want)
+			details, err := ValidateAndExtractNamespaceDetailsFromToken(tt.args.secret, token)
+			require.NoError(t, err)
+			if details.EnvironmentId != tt.args.details.EnvironmentId {
+				if !tt.wantCompError {
+					t.Errorf("GenerateTokenForNamespace() got = %v, want %v", details.EnvironmentId, tt.args.details.EnvironmentId)
+				}
 			}
-		})
-	}
-}
 
-func TestValidateAndExtractNamespaceFromToken(t *testing.T) {
-	type args struct {
-		key   string
-		token string
-	}
-	tests := []struct {
-		name    string
-		args    args
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "No errors, namespace testNsName",
-			args: args{
-				key:   "testsecret",
-				token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lc3BhY2UiOiJ0ZXN0TnNOYW1lIn0.jxNjQIaXtDeaU2_yRLssGXwe39YF38SPJqMDJ9UW63k",
-			},
-			want:    "testNsName",
-			wantErr: false,
-		},
-		{
-			name: "Valid, but no namespace key in payload",
-			args: args{
-				key:   "testsecret",
-				token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJibGFoIjoiYmxhaCJ9.VDooXVSmmPEQFtgMrbB5_Besn62yj5b4IL3OBCi4d4I",
-			},
-			wantErr: true,
-		},
-		{
-			name: "Invalid, payload right, but will fail because we're encoding with secret of 'sneaky'",
-			args: args{
-				key:   "testsecret", //we've actually encoded this with the key 'sneaky' - so should fail
-				token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lc3BhY2UiOiJ0ZXN0TnNOYW1lIn0.RGty06bhlBeXfG1EVvtuOqAVIIZEi5DcmKbxKuBQ7d4",
-			},
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := ValidateAndExtractNamespaceFromToken(tt.args.key, tt.args.token)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateAndExtractNamespaceFromToken() error = %v, wantErr %v", err, tt.wantErr)
-				return
+			if details.ProjectName != tt.args.details.ProjectName {
+				if !tt.wantCompError {
+					t.Errorf("GenerateTokenForNamespace() got = %v, want %v", details.ProjectName, tt.args.details.ProjectName)
+				}
 			}
-			if got != tt.want {
-				t.Errorf("ValidateAndExtractNamespaceFromToken() got = %v, want %v", got, tt.want)
+
+			if details.EnvironmentName != tt.args.details.EnvironmentName {
+				if !tt.wantCompError {
+					t.Errorf("GenerateTokenForNamespace() got = %v, want %v", details.EnvironmentName, tt.args.details.EnvironmentName)
+				}
 			}
+
 		})
 	}
 }

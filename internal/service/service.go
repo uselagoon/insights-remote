@@ -33,7 +33,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 		c.JSON(http.StatusOK, err)
 	}
 
-	namespace, err := tokens.ValidateAndExtractNamespaceFromToken(r.secret, h.Authorization)
+	namespace, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.secret, h.Authorization)
 
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{
