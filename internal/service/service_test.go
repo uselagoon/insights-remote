@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/json"
 	"lagoon.sh/insights-remote/internal"
@@ -16,11 +17,21 @@ import (
 const secretTestTokenSecret = "secret"
 const secretTestNamespace = "testNS"
 
+func messageQueueWriter(data []byte) error {
+	fmt.Println(string(data))
+	return nil
+}
+
 func TestWriteRoute(t *testing.T) {
-	router := SetupRouter(secretTestTokenSecret)
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
 	w := httptest.NewRecorder()
 
-	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, secretTestNamespace)
+	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
+		Namespace:       secretTestNamespace,
+		EnvironmentId:   "1",
+		ProjectName:     "Test",
+		EnvironmentName: "Test",
+	})
 
 	require.NoError(t, err)
 

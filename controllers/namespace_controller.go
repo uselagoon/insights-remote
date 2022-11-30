@@ -145,8 +145,10 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				Name:      "insights-token",
 				Namespace: ns.GetName(),
 				Labels: map[string]string{
-					insightsTokenLabel: "true",
+					insightsTokenLabel:         "true",
+					"lagoon.sh/dynamic-secret": "insights-token", //This will ensure that this is dynamically mounted in pods
 				},
+				Annotations: map[string]string{},
 			},
 			Immutable: nil,
 			Data: map[string][]byte{

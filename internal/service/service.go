@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/util/json"
 	"lagoon.sh/insights-remote/internal"
 	"lagoon.sh/insights-remote/internal/tokens"
 	"net/http"
@@ -14,12 +15,16 @@ type AuthHeader struct {
 
 // routerInstance is used to share state
 type routerInstance struct {
-	secret string
+	secret         string
+	MessageQWriter func(data []byte) error
+	WriteToQueue   bool
 }
 
-func SetupRouter(secret string) *gin.Engine {
+func SetupRouter(secret string, messageQWriter func(data []byte) error, writeToQueue bool) *gin.Engine {
 	router := gin.Default()
 	r := routerInstance{secret: secret}
+	r.MessageQWriter = messageQWriter
+	r.WriteToQueue = writeToQueue
 	router.POST("/facts", r.writeFacts)
 	return router
 }
@@ -53,6 +58,34 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 			"message": err.Error(),
 		})
 		return
+	}
+
+	//let's force our facts to get pushed to the right place
+	details.EnvironmentId = namespace.EnvironmentId
+	details.ProjectName = namespace.ProjectName
+	details.EnvironmentName = namespace.EnvironmentName
+	for i := range details.Facts {
+		details.Facts[i].EnvironmentId = namespace.EnvironmentId
+		details.Facts[i].EnvironmentName = namespace.EnvironmentName
+		details.Facts[i].ProjectName = namespace.ProjectName
+	}
+
+	// Write this to the queue
+
+	jsonRep, err := json.Marshal(details)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, err)
+		return
+	}
+
+	if r.WriteToQueue {
+		err = r.MessageQWriter(jsonRep)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, err)
+			return
+		}
+	} else {
+		fmt.Sprintf("Not writing to queue - would have sent these data %v", jsonRep)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
