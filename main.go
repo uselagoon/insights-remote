@@ -375,7 +375,7 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 }
 
 func startInsightsEndpoint(mgr manager.Manager) {
-	router := service.SetupRouter(insightsTokenSecret)
+	router := service.SetupRouter(insightsTokenSecret, mqWriteObject, mqEnable)
 	go router.Run(fmt.Sprintf(":%v", webservicePort))
 }
 
