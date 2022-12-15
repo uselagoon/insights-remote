@@ -2,13 +2,14 @@ package service
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/json"
 	"lagoon.sh/insights-remote/internal"
 	"lagoon.sh/insights-remote/internal/tokens"
-	"net/http"
-	"net/http/httptest"
-	"testing"
 
 	"github.com/stretchr/testify/assert"
 )

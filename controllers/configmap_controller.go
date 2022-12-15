@@ -19,6 +19,9 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -28,8 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"strconv"
-	"time"
 )
 
 const InsightsLabel = "lagoon.sh/insightsType"

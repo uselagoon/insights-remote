@@ -2,11 +2,12 @@ package service
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/util/json"
 	"lagoon.sh/insights-remote/internal"
 	"lagoon.sh/insights-remote/internal/tokens"
-	"net/http"
 )
 
 type AuthHeader struct {
@@ -50,7 +51,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 
 	fmt.Println("Going to write to namespace ", namespace)
 
-	details := &internal.Facts{}
+	details := &internal.Facts{InsightsType: "facts"}
 
 	if err = c.ShouldBindJSON(details); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
