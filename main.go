@@ -36,6 +36,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	vulnerabilityreportsv1alpha1 "github.com/aquasecurity/trivy-operator/pkg/apis/aquasecurity/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -63,6 +64,10 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+
+	if err := vulnerabilityreportsv1alpha1.AddToScheme(scheme); err != nil {
+		fmt.Errorf("failed to add vulnerabilityreports scheme: %w", err)
+	}
 
 	//+kubebuilder:scaffold:scheme
 }
@@ -198,6 +203,16 @@ func main() {
 		WriteToQueue:     mqEnable,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
+		os.Exit(1)
+	}
+
+	if err = (&controllers.TrivyVulnerabilityReportReconciler{
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		MessageQWriter: mqWriteObject,
+		WriteToQueue:   mqEnable,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "TrivyVulnerabilityReport")
 		os.Exit(1)
 	}
 
