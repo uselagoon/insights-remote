@@ -58,6 +58,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 			"status":  "Unable to parse incoming data",
 			"message": err.Error(),
 		})
+		fmt.Println(err)
 		return
 	}
 
@@ -86,7 +87,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 			return
 		}
 	} else {
-		fmt.Sprintf("Not writing to queue - would have sent these data %v", jsonRep)
+		fmt.Printf("Not writing to queue - would have sent these data %v\n", string(jsonRep))
 	}
 
 	c.JSON(http.StatusOK, gin.H{

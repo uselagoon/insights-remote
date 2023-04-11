@@ -118,6 +118,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	if !foundItem { //let's create the token and secret
 		labels := ns.GetLabels()
+
 		environmentId, err := getValueFromMap(labels, "lagoon.sh/environmentId")
 		if err != nil {
 			return ctrl.Result{}, errors.New("Unable to find lagoon.sh/environmentId label in namespace " + ns.GetName() + " failed creating insights token")
@@ -130,6 +131,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		if err != nil {
 			return ctrl.Result{}, errors.New("Unable to find lagoon.sh/environment label in namespace " + ns.GetName() + " failed creating insights token")
 		}
+
 		jwt, err := tokens.GenerateTokenForNamespace(r.InsightsJWTSecret, tokens.NamespaceDetails{
 			Namespace:       ns.GetName(),
 			EnvironmentId:   environmentId,
@@ -172,7 +174,7 @@ func getValueFromMap(labels map[string]string, key string) (string, error) {
 	}
 }
 
-func activeNamespacePredicate() predicate.Predicate {
+func activeNamespacePredicate(tokenTargetLabel string) predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
 			labels := event.Object.GetLabels()
@@ -188,6 +190,14 @@ func activeNamespacePredicate() predicate.Predicate {
 			if err != nil {
 				return false
 			}
+
+			if tokenTargetLabel != "" {
+				_, err = getValueFromMap(labels, tokenTargetLabel)
+				if err != nil {
+					return false
+				}
+			}
+
 			return true
 		},
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
@@ -207,6 +217,12 @@ func activeNamespacePredicate() predicate.Predicate {
 			if err != nil {
 				return false
 			}
+			if tokenTargetLabel != "" {
+				_, err = getValueFromMap(labels, tokenTargetLabel)
+				if err != nil {
+					return false
+				}
+			}
 			return true
 		},
 		GenericFunc: func(genericEvent event.GenericEvent) bool {
@@ -216,9 +232,9 @@ func activeNamespacePredicate() predicate.Predicate {
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *NamespaceReconciler) SetupWithManager(mgr ctrl.Manager, tokenTargetLabel string) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.Namespace{}).
-		WithEventFilter(activeNamespacePredicate()).
+		WithEventFilter(activeNamespacePredicate(tokenTargetLabel)).
 		Complete(r)
 }

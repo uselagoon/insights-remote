@@ -66,6 +66,7 @@ var (
 	enableCMReconciler           bool
 	enableInsightDeferred        bool //TODO: Better names for this
 	enableWebservice             bool
+	tokenTargetLabel             string
 	webservicePort               string
 )
 
@@ -139,6 +140,9 @@ func main() {
 
 	flag.BoolVar(&enableWebservice, "enable-webservice", true,
 		"Enables json endpoint for writing insights data.")
+
+	flag.StringVar(&tokenTargetLabel, "token-target-label", "",
+		"Constrain webservice token generation to namespaces with this label.")
 
 	flag.StringVar(&webservicePort, "webservice-port", "8080", "Port on which we expose the JSON webservice.")
 
@@ -249,7 +253,7 @@ func main() {
 			Client:            mgr.GetClient(),
 			Scheme:            mgr.GetScheme(),
 			InsightsJWTSecret: insightsTokenSecret,
-		}).SetupWithManager(mgr); err != nil {
+		}).SetupWithManager(mgr, tokenTargetLabel); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "Namespace")
 			os.Exit(1)
 		}
