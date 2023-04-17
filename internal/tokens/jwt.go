@@ -39,11 +39,17 @@ func ValidateAndExtractNamespaceDetailsFromToken(key, token string) (NamespaceDe
 	ret := NamespaceDetails{}
 
 	if claims, ok := outToken.Claims.(jwt.MapClaims); ok && outToken.Valid {
-		if namespaceId, ok := claims["EnvironmentId"]; ok {
+		if environmentId, ok := claims["EnvironmentId"]; ok {
 			//return fmt.Sprintf("%v", EnvironmentId), nil
-			ret.EnvironmentId = fmt.Sprintf("%v", namespaceId)
+			ret.EnvironmentId = fmt.Sprintf("%v", environmentId)
 		} else {
 			return ret, errors.New("Unable to find key 'EnvironmentId' in valid token")
+		}
+
+		if namespace, ok := claims["Namespace"]; ok {
+			ret.Namespace = fmt.Sprintf("%v", namespace)
+		} else {
+			return ret, errors.New("Unable to find key 'Namespace' in valid token")
 		}
 
 		if environmentName, ok := claims["EnvironmentName"]; ok {

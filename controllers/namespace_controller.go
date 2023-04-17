@@ -79,7 +79,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		LabelSelector: labelSelector,
 		Namespace:     ns.GetName(),
 	}
-	//r.Get(ctx, "insightsNamespaceToken", secret)
+
 	err = r.Client.List(ctx, secretList, &listOptions)
 	if err != nil {
 		return ctrl.Result{}, err
