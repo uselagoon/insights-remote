@@ -3,18 +3,19 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
+
 	"github.com/aquasecurity/trivy-operator/pkg/apis/aquasecurity/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
-	"os"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strconv"
 )
 
 const LagoonProjectLabel = "lagoon.sh/project"
@@ -76,8 +77,9 @@ func (r *TrivyVulnerabilityReportReconciler) isLagoonProject(event client.Object
 
 	// check the ns if this is a lagoon project
 	isLagoonProject := false
-	for k, v := range nsObj.Labels {
-		if k == LagoonProjectLabel && v == namespace {
+	val, ok := nsObj.Labels[LagoonProjectLabel]
+	if ok {
+		if val == namespace {
 			isLagoonProject = true
 		}
 	}
