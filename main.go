@@ -20,17 +20,18 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/cheshir/go-mq"
 	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	"log"
-	"os"
 	client2 "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"strconv"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -60,6 +61,7 @@ var (
 	burnAfterReading             bool
 	clearConfigmapCronSched      string
 	mqConfig                     mq.Config
+	trivyVulnReportEnabled       bool
 )
 
 func init() {
@@ -120,6 +122,8 @@ func main() {
 		"Remove insights configmaps after they have been processed.")
 	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
 		"The cron schedule specifying how often insightType configmaps should be cleared.")
+	flag.BoolVar(&trivyVulnReportEnabled, "trivy-vuln-reports-enabled", false,
+		"Enables the processing of Trivy Vulnerability Reports")
 
 	opts := zap.Options{
 		Development: true,
@@ -137,6 +141,12 @@ func main() {
 	if getEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
 		burnAfterReading = true
+	}
+
+	//Check trivy reporting value from environment
+	if getEnv("TRIVY_VULN_REPORT_ENABLED", "FALSE") == "TRUE" {
+		log.Printf("Trivy-vuln-reporting enabled via environment variable")
+		trivyVulnReportEnabled = true
 	}
 
 	mqConfig = mq.Config{
@@ -206,14 +216,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.TrivyVulnerabilityReportReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		MessageQWriter: mqWriteObject,
-		WriteToQueue:   mqEnable,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "TrivyVulnerabilityReport")
-		os.Exit(1)
+	if trivyVulnReportEnabled {
+		if err = (&controllers.TrivyVulnerabilityReportReconciler{
+			Client:         mgr.GetClient(),
+			Scheme:         mgr.GetScheme(),
+			MessageQWriter: mqWriteObject,
+			WriteToQueue:   mqEnable,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "TrivyVulnerabilityReport")
+			os.Exit(1)
+		}
 	}
 
 	// Set up periodic removal of processed configmaps
