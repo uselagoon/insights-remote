@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/aquasecurity/trivy-operator/pkg/apis/aquasecurity/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,8 +20,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-const LagoonProjectLabel = "lagoon.sh/project"
-const TrivyVulnReportNamespace = "trivy-operator.resource.namespace"
+const (
+	LagoonProjectLabel        = "lagoon.sh/project"
+	TrivyVulnReportNamespace  = "trivy-operator.resource.namespace"
+	LagoonInsightsProcessed   = "lagoon.sh/insightsProcessed"
+	ProcessingTimeoutDuration = 5 * time.Second
+)
 
 type TrivyVulnerabilityReportReconciler struct {
 	Client           client.Client
@@ -37,20 +42,16 @@ type ProblemsPayload struct {
 // predicate that filters out non-lagoon projects
 func (r *TrivyVulnerabilityReportReconciler) lagoonProjectLabelsOnlyPredicate() predicate.Predicate {
 
+	filterFunc := func(obj client.Object) bool {
+		return isLagoonProject(r, obj) && !insightsProcessedAnnotationExists(obj)
+	}
+
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
-			if isLagoonProject(r, event.Object) &&
-				!insightsProcessedAnnotationExists(event.Object) {
-				return true
-			}
-			return false
+			return filterFunc(event.Object)
 		},
 		UpdateFunc: func(event event.UpdateEvent) bool {
-			if isLagoonProject(r, event.ObjectNew) &&
-				!insightsProcessedAnnotationExists(event.ObjectNew) {
-				return true
-			}
-			return false
+			return filterFunc(event.ObjectNew)
 		},
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
 			return false
@@ -59,33 +60,18 @@ func (r *TrivyVulnerabilityReportReconciler) lagoonProjectLabelsOnlyPredicate() 
 }
 
 func isLagoonProject(r *TrivyVulnerabilityReportReconciler, event client.Object) bool {
-	var namespace string
-	for k, v := range event.GetLabels() {
-		if k == TrivyVulnReportNamespace {
-			namespace = v
-		}
-	}
-
+	namespace := event.GetLabels()[TrivyVulnReportNamespace]
 	nsObj := &corev1.Namespace{}
 	nsObj.SetName(namespace)
 
 	// retrieve the ns object from the k8 API
-	err := r.Client.Get(context.Background(), client.ObjectKeyFromObject(nsObj), nsObj)
-	if err != nil {
+	if err := r.Client.Get(context.Background(), client.ObjectKeyFromObject(nsObj), nsObj); err != nil {
 		fmt.Printf("Failed to get Namespace %q: %v\n", namespace, err)
 		os.Exit(1)
 	}
 
-	// check the ns if this is a lagoon project
-	isLagoonProject := false
-	val, ok := nsObj.Labels[LagoonProjectLabel]
-	if ok {
-		if val == namespace {
-			isLagoonProject = true
-		}
-	}
-
-	if isLagoonProject {
+	// check if the ns is a lagoon project
+	if val, ok := nsObj.Labels[LagoonProjectLabel]; ok && val == namespace {
 		// store some data since we've already done the lookup, and it doesn't exist in the vuln. report
 		r.PredicateDataMap.Store(client.ObjectKeyFromObject(event), nsObj.Labels)
 		return true
@@ -95,6 +81,7 @@ func isLagoonProject(r *TrivyVulnerabilityReportReconciler, event client.Object)
 }
 
 func (r *TrivyVulnerabilityReportReconciler) Reconcile(ctx context.Context, request reconcile.Request) (reconcile.Result, error) {
+	// Retrieve the VulnerabilityReport object
 	vulnReport := &v1alpha1.VulnerabilityReport{}
 	err := r.Client.Get(ctx, client.ObjectKey{Name: request.Name, Namespace: request.Namespace}, vulnReport)
 	if err != nil {
@@ -103,64 +90,56 @@ func (r *TrivyVulnerabilityReportReconciler) Reconcile(ctx context.Context, requ
 
 	log := log.FromContext(ctx)
 
-	bytes, err := json.Marshal(vulnReport)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
+	// Copy the object
+	report := vulnReport.DeepCopy()
 
-	var report v1alpha1.VulnerabilityReport
-	if err := json.Unmarshal(bytes, &report); err != nil {
-		return reconcile.Result{}, err
-	}
+	// Append project metadata to the report labels
+	labelsWithProjectMeta := r.appendProjectMetaToReportLabels(report, request)
 
-	labelsWithProjectMeta := r.appendProjectMetaToReportLabels(vulnReport, report)
-
-	// take report and convert to lagoon problems payload object
+	// Convert the report to a Lagoon problems payload object
 	problemsPayload := updateReportPayloadToLagoonProblems(report)
 
-	var sendData = LagoonInsightsMessage{
+	// Construct the message to be sent to the broker
+	sendData := LagoonInsightsMessage{
 		Payload:     []interface{}{problemsPayload},
 		Annotations: report.Annotations,
 		Labels:      labelsWithProjectMeta,
 	}
 
-	// marshall data ready for sending to broker
+	// Marshal the message data
 	marshalledData, err := json.Marshal(sendData)
 	if err != nil {
-		log.Error(err, "Unanle to marshall Vulnerability report data")
+		log.Error(err, "Unable to marshall Vulnerability report data")
 		return ctrl.Result{}, err
 	}
 
+	// Write the message to the broker if enabled
 	if r.WriteToQueue {
 		if err := r.MessageQWriter(marshalledData); err != nil {
-
 			log.Error(err, "Unable to write to message broker")
-
 			return ctrl.Result{}, err
 		}
 	}
 
-	// add an annotation to the report indicating it has been processed
+	// Add an annotation to the report indicating it has been processed
 	report.Annotations["lagoon.sh/insightsProcessed"] = "true"
-	if err := r.Client.Update(ctx, &report); err != nil {
+	if err := r.Client.Update(ctx, report); err != nil {
 		return ctrl.Result{}, err
 	}
 
 	return reconcile.Result{}, nil
 }
 
-func updateReportPayloadToLagoonProblems(report v1alpha1.VulnerabilityReport) interface{} {
-	var problems []map[string]interface{}
-	labels := report.GetLabels()
+func updateReportPayloadToLagoonProblems(report *v1alpha1.VulnerabilityReport) interface{} {
+	problems := make([]map[string]interface{}, 0, len(report.Report.Vulnerabilities))
 
+	labels := report.GetLabels()
 	for _, problem := range report.Report.Vulnerabilities {
-		var score float64
+		score := 0.0
 		if problem.Score != nil {
 			score = *problem.Score
 		}
-		scoreStr := strconv.FormatFloat(score, 'f', 1, 64)
-		s, _ := strconv.ParseFloat(scoreStr, 64)
-		scoreFloat := s * 0.1
+		scoreStr := strconv.FormatFloat(score*0.1, 'f', 2, 64)
 
 		p := map[string]interface{}{
 			"environment":       labels["lagoon.sh/environmentId"],
@@ -179,33 +158,35 @@ func updateReportPayloadToLagoonProblems(report v1alpha1.VulnerabilityReport) in
 				return problem.Description
 			}(),
 			"links":         problem.PrimaryLink,
-			"severityScore": fmt.Sprintf("%.2f", scoreFloat),
+			"severityScore": scoreStr,
 		}
 
 		problems = append(problems, p)
 	}
 
-	return map[string]interface{}{"problems": problems}
+	return map[string]interface{}{
+		"problems": problems,
+	}
 }
 
-func (r *TrivyVulnerabilityReportReconciler) appendProjectMetaToReportLabels(event client.Object, report v1alpha1.VulnerabilityReport) map[string]string {
-	l := report.Labels
-	m := report.ObjectMeta
+func (r *TrivyVulnerabilityReportReconciler) appendProjectMetaToReportLabels(report *v1alpha1.VulnerabilityReport, request reconcile.Request) map[string]string {
+	labels := make(map[string]string, len(report.Labels)+2)
+	for k, v := range report.Labels {
+		labels[k] = v
+	}
+	labels["lagoon.sh/service"] = report.Labels["trivy-operator.container.name"]
+	labels["lagoon.sh/insightsType"] = "trivy-vuln-report"
 
 	// Retrieve the PredicateData for this reconciliation
-	predicateData, ok := r.PredicateDataMap.Load(client.ObjectKeyFromObject(event))
-	if ok {
-		if labels, ok := predicateData.(map[string]string); ok {
-			for k, v := range labels {
-				l[k] = v
+	if predicateData, ok := r.PredicateDataMap.Load(client.ObjectKey{Name: request.Name, Namespace: request.Namespace}); ok {
+		if predLabels, ok := predicateData.(map[string]string); ok {
+			for k, v := range predLabels {
+				labels[k] = v
 			}
 		}
 	}
 
-	l["lagoon.sh/service"] = m.Labels["trivy-operator.container.name"]
-	l["lagoon.sh/insightsType"] = "trivy-vuln-report"
-
-	return l
+	return labels
 }
 
 func (r *TrivyVulnerabilityReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
