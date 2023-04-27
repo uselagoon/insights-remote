@@ -72,6 +72,8 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 		details.Facts[i].ProjectName = namespace.ProjectName
 	}
 
+	details.InsightsType = "facts"
+
 	// Write this to the queue
 
 	jsonRep, err := json.Marshal(details)
