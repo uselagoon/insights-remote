@@ -1,6 +1,6 @@
 module lagoon.sh/insights-remote
 
-go 1.16
+go 1.18
 
 require (
 	github.com/NeowayLabs/wabbit v0.0.0-20210927194032-73ad61d1620e // indirect
