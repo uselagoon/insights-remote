@@ -91,7 +91,6 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		log.Info(fmt.Sprintf("Found secret with name '%v' and namespace '%v'", v.Name, v.Namespace))
 		// let's verify this to make sure it looks good
 		if val, ok := v.Data["INSIGHTS_TOKEN"]; ok {
-			//log.Info(fmt.Sprintf("Got value of '%v'", string(val)))
 			namespaceDetails, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.InsightsJWTSecret, string(val))
 
 			if err != nil {
