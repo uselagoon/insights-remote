@@ -32,8 +32,6 @@ func SetupRouter(secret string, messageQWriter func(data []byte) error, writeToQ
 
 func (r *routerInstance) writeFacts(c *gin.Context) {
 
-	// TODO: check incoming packet can is serializable ...
-
 	h := &AuthHeader{}
 	if err := c.ShouldBindHeader(&h); err != nil {
 		c.JSON(http.StatusOK, err)
