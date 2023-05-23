@@ -43,17 +43,18 @@ func TestWriteRoute(t *testing.T) {
 
 	require.NoError(t, err)
 
-	testFacts := internal.Facts{Facts: []internal.Fact{
-		{
-			Name:        "testfact1",
-			Value:       "testvalue1",
-			Source:      "testsource1",
-			Description: "testdescription1",
-			Type:        "testtype1",
-			Category:    "testcategory1",
-			Service:     "testservice1",
-		},
-	}}
+	testFacts := internal.Facts{Source: "sourcehere",
+		Facts: []internal.Fact{
+			{
+				Name:        "testfact1",
+				Value:       "testvalue1",
+				Source:      "testsource1",
+				Description: "testdescription1",
+				Type:        "testtype1",
+				Category:    "testcategory1",
+				Service:     "testservice1",
+			},
+		}}
 	bodyString, _ := json.Marshal(testFacts)
 	req, _ := http.NewRequest(http.MethodPost, "/facts", bytes.NewBuffer(bodyString))
 	req.Header.Set("Authorization", token)

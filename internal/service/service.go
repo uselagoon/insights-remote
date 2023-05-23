@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -49,7 +50,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 
 	fmt.Println("Going to write to namespace ", namespace)
 
-	details := &internal.Facts{InsightsType: "facts"}
+	details := &internal.Facts{Type: "direct", InsightsType: "facts"}
 
 	if err = c.ShouldBindJSON(details); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -61,13 +62,34 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 	}
 
 	//let's force our facts to get pushed to the right place
-	details.EnvironmentId = namespace.EnvironmentId
+	lid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "Unable to parse environment ID",
+			"message": err.Error(),
+		})
+		fmt.Println(err)
+		return
+	}
+
+	if details.Source == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "A global 'source' is required",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	details.EnvironmentId = int(lid)
 	details.ProjectName = namespace.ProjectName
 	details.EnvironmentName = namespace.EnvironmentName
 	for i := range details.Facts {
 		details.Facts[i].EnvironmentId = namespace.EnvironmentId
 		details.Facts[i].EnvironmentName = namespace.EnvironmentName
 		details.Facts[i].ProjectName = namespace.ProjectName
+		if details.Source == "" {
+			details.Facts[i].Source = details.Source
+		}
 	}
 
 	details.InsightsType = "facts"
