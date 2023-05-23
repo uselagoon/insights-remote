@@ -51,7 +51,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 	fmt.Println("Going to write to namespace ", namespace)
 
 	//TODO: drop "InsightsType" for Type of the form "direct.fact"/"direct.problem"
-	details := &internal.Facts{Type: "direct", InsightsType: "facts"}
+	details := &internal.Facts{Type: "direct.facts"}
 
 	if err = c.ShouldBindJSON(details); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -73,14 +73,6 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 		return
 	}
 
-	if details.Source == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"status":  "A global 'source' is required",
-			"message": err.Error(),
-		})
-		return
-	}
-
 	details.EnvironmentId = int(lid)
 	details.ProjectName = namespace.ProjectName
 	details.EnvironmentName = namespace.EnvironmentName
@@ -88,12 +80,10 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 		details.Facts[i].EnvironmentId = namespace.EnvironmentId
 		details.Facts[i].EnvironmentName = namespace.EnvironmentName
 		details.Facts[i].ProjectName = namespace.ProjectName
-		if details.Source == "" {
-			details.Facts[i].Source = details.Source
+		if details.Facts[i].Source == "" {
+			details.Facts[i].Source = "InsightsRemoteWebService"
 		}
 	}
-
-	details.InsightsType = "facts"
 
 	// Write this to the queue
 

@@ -43,7 +43,7 @@ func TestWriteRoute(t *testing.T) {
 
 	require.NoError(t, err)
 
-	testFacts := internal.Facts{Source: "sourcehere",
+	testFacts := internal.Facts{
 		Facts: []internal.Fact{
 			{
 				Name:        "testfact1",
