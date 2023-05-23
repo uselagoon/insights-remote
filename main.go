@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"lagoon.sh/insights-remote/internal/service"
+	"lagoon.sh/insights-remote/internal/tokens"
 	"log"
 	"os"
 	"strconv"
@@ -50,24 +51,29 @@ import (
 )
 
 var (
-	scheme                       = runtime.NewScheme()
-	setupLog                     = ctrl.Log.WithName("setup")
-	mqEnable                     bool
-	mqUser                       string
-	mqPass                       string
-	mqHost                       string
-	mqPort                       string
-	rabbitReconnectRetryInterval int
-	burnAfterReading             bool
-	clearConfigmapCronSched      string
-	mqConfig                     mq.Config
-	insightsTokenSecret          string
-	enableNSReconciler           bool
-	enableCMReconciler           bool
-	enableInsightDeferred        bool //TODO: Better names for this
-	enableWebservice             bool
-	tokenTargetLabel             string
-	webservicePort               string
+	scheme                           = runtime.NewScheme()
+	setupLog                         = ctrl.Log.WithName("setup")
+	mqEnable                         bool
+	mqUser                           string
+	mqPass                           string
+	mqHost                           string
+	mqPort                           string
+	rabbitReconnectRetryInterval     int
+	burnAfterReading                 bool
+	clearConfigmapCronSched          string
+	mqConfig                         mq.Config
+	insightsTokenSecret              string
+	enableNSReconciler               bool
+	enableCMReconciler               bool
+	enableInsightDeferred            bool //TODO: Better names for this
+	enableWebservice                 bool
+	tokenTargetLabel                 string
+	webservicePort                   string
+	generateTokenOnly                bool
+	generateTokenOnlyNamespace       string
+	generateTokenOnlyEnvironmentId   string
+	generateTokenOnlyProjectName     string
+	generateTokenOnlyEnvironmentName string
 )
 
 func init() {
@@ -146,11 +152,40 @@ func main() {
 
 	flag.StringVar(&webservicePort, "webservice-port", "8080", "Port on which we expose the JSON webservice.")
 
+	flag.BoolVar(&generateTokenOnly, "generate-token-only", false, "Generate a token and exit.")
+
+	flag.StringVar(&generateTokenOnlyNamespace, "generate-token-only-namespace", "", "Namespace for which to generate a token.")
+
+	flag.StringVar(&generateTokenOnlyEnvironmentId, "generate-token-only-environment-id", "", "Environment ID for which to generate a token.")
+
+	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "Project name for which to generate a token.")
+
+	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "Environment name for which to generate a token.")
+
 	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	//Generate a token and exit if generateTokenOnly is set
+	if generateTokenOnly {
+		if generateTokenOnlyEnvironmentName == "" || generateTokenOnlyEnvironmentId == "" || generateTokenOnlyProjectName == "" || generateTokenOnlyNamespace == "" {
+			log.Fatal("generate-token-only requires all of generate-token-only-environment-name, generate-token-only-environment-id, generate-token-only-project-name and generate-token-only-namespace to be set")
+			os.Exit(1)
+		}
+		jwt, err := tokens.GenerateTokenForNamespace(insightsTokenSecret, tokens.NamespaceDetails{
+			Namespace:       generateTokenOnlyNamespace,
+			EnvironmentId:   generateTokenOnlyEnvironmentId,
+			ProjectName:     generateTokenOnlyProjectName,
+			EnvironmentName: generateTokenOnlyEnvironmentName,
+		})
+		if err != nil {
+			log.Fatal(err, "Unable to generate token")
+		}
+		fmt.Println(jwt)
+		os.Exit(0)
+	}
 
 	//Grab overrides from environment where appropriate
 	mqUser = getEnv("RABBITMQ_USERNAME", mqUser)
