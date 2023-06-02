@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strconv"
 	"time"
 
@@ -42,6 +43,8 @@ type LagoonInsightsMessage struct {
 	BinaryPayload map[string][]byte `json:"binaryPayload"`
 	Annotations   map[string]string `json:"annotations"`
 	Labels        map[string]string `json:"labels"`
+	Environment   string            `json:"environment"`
+	Project       string            `json:"project"`
 }
 
 // ConfigMapReconciler reconciles a ConfigMap object
@@ -80,6 +83,8 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		BinaryPayload: configMap.BinaryData,
 		Annotations:   configMap.Annotations,
 		Labels:        configMap.Labels,
+		Environment:   getEnvironmentFromName(configMap.Name),
+		Project:       getProjectFromName(configMap.Name),
 	}
 
 	marshalledData, err := json.Marshal(sendData)
@@ -167,4 +172,16 @@ func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&corev1.ConfigMap{}).
 		WithEventFilter(insightLabelsOnlyPredicate()).
 		Complete(r)
+}
+
+func getProjectFromName(project string) string {
+	regex := regexp.MustCompile(`/([^/]+)`)
+	match := regex.FindStringSubmatch(project)
+	return match[1]
+}
+
+func getEnvironmentFromName(environment string) string {
+	regex := regexp.MustCompile(`/[^/]+/([^/]+)`)
+	match := regex.FindStringSubmatch(environment)
+	return match[1]
 }
