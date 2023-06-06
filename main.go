@@ -20,17 +20,18 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/cheshir/go-mq"
 	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	"log"
-	"os"
 	client2 "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"strconv"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -55,6 +56,7 @@ var (
 	mqPass                       string
 	mqHost                       string
 	mqPort                       string
+	runSbomsThroughGrype         bool
 	rabbitReconnectRetryInterval int
 	burnAfterReading             bool
 	clearConfigmapCronSched      string
@@ -111,6 +113,8 @@ func main() {
 		"The port for the rabbitmq host.")
 	flag.IntVar(&rabbitReconnectRetryInterval, "rabbitmq-reconnect-retry-interval", 30,
 		"The retry interval for rabbitmq.")
+	flag.BoolVar(&runSbomsThroughGrype, "sboms-to-grype", false,
+		"Processes SBOMs through to Grype to generate CVEs.")
 	flag.BoolVar(&burnAfterReading, "burn-after-reading", false,
 		"Remove insights configmaps after they have been processed.")
 	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
@@ -127,6 +131,12 @@ func main() {
 	mqPass = getEnv("RABBITMQ_PASSWORD", mqPass)
 	mqHost = getEnv("RABBITMQ_ADDRESS", mqHost)
 	mqPort = getEnv("RABBITMQ_PORT", mqPort)
+
+	//Check  from environment
+	if getEnv("SBOMS_TO_GRYPE", "FALSE") == "TRUE" {
+		log.Printf("Process SBOMS through Grype enabled via environment variable")
+		runSbomsThroughGrype = true
+	}
 
 	//Check burn after reading value from environment
 	if getEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
@@ -194,6 +204,7 @@ func main() {
 		Client:           mgr.GetClient(),
 		Scheme:           mgr.GetScheme(),
 		MessageQWriter:   mqWriteObject,
+		SBOMsToGrype:     runSbomsThroughGrype,
 		BurnAfterReading: burnAfterReading,
 		WriteToQueue:     mqEnable,
 	}).SetupWithManager(mgr); err != nil {
