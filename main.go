@@ -150,7 +150,7 @@ func main() {
 	flag.StringVar(&tokenTargetLabel, "token-target-label", "",
 		"Constrain webservice token generation to namespaces with this label.")
 
-	flag.StringVar(&webservicePort, "webservice-port", "80", "Port on which we expose the JSON webservice.")
+	flag.StringVar(&webservicePort, "webservice-port", "8888", "Port on which we expose the JSON webservice.")
 
 	flag.BoolVar(&generateTokenOnly, "generate-token-only", false, "Generate a token and exit.")
 
