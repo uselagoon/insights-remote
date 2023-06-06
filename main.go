@@ -135,14 +135,14 @@ func main() {
 		"The secret used to create the insights tokens used to communicate back to the webservice (can be set with env var INSIGHTS_TOKEN_SECRET).")
 	insightsTokenSecret = getEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
 
-	flag.BoolVar(&enableCMReconciler, "enable-configmap-reconciler", false,
+	flag.BoolVar(&enableCMReconciler, "enable-configmap-reconciler", true,
 		"Enable the configmap reconciler.")
 
-	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", false,
+	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
 		"enable-namespace-reconciler.")
 
 	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
-		"TODO give this a proper explanation.")
+		"Delete insights after certain time.")
 
 	flag.BoolVar(&enableWebservice, "enable-webservice", true,
 		"Enables json endpoint for writing insights data.")
