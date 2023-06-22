@@ -51,8 +51,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 	fmt.Println("Going to write to namespace ", namespace)
 
 	//TODO: drop "InsightsType" for Type of the form "direct.fact"/"direct.problem"
-	details := &internal.Facts{Type: "direct.Fact"}
-	// Do we want to have 'Type' defined at this level, or for each individual Fact?
+	details := &internal.Facts{Type: "direct.facts"}
 
 	if err = c.ShouldBindJSON(details); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{

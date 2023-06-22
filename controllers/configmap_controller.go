@@ -19,7 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"regexp"
+	"k8s.io/apimachinery/pkg/types"
 	"strconv"
 	"time"
 
@@ -78,13 +78,28 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	var nameSpace corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: req.Namespace}, &nameSpace); err != nil {
+		log.Error(err, "Unable to load Namespace")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	var environmentName string
+	var projectName string
+	labels := nameSpace.Labels
+	if _, ok := labels["lagoon.sh/environment"]; ok {
+		environmentName = labels["lagoon.sh/environment"]
+	} else if _, ok := labels["lagoon.sh/project"]; ok {
+		projectName = labels["lagoon.sh/project"]
+	}
+
 	var sendData = LagoonInsightsMessage{
 		Payload:       configMap.Data,
 		BinaryPayload: configMap.BinaryData,
 		Annotations:   configMap.Annotations,
 		Labels:        configMap.Labels,
-		Environment:   getEnvironmentFromName(configMap.Name),
-		Project:       getProjectFromName(configMap.Name),
+		Environment:   environmentName,
+		Project:       projectName,
 	}
 
 	marshalledData, err := json.Marshal(sendData)
@@ -172,16 +187,4 @@ func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&corev1.ConfigMap{}).
 		WithEventFilter(insightLabelsOnlyPredicate()).
 		Complete(r)
-}
-
-func getProjectFromName(project string) string {
-	regex := regexp.MustCompile(`/([^/]+)`)
-	match := regex.FindStringSubmatch(project)
-	return match[1]
-}
-
-func getEnvironmentFromName(environment string) string {
-	regex := regexp.MustCompile(`/[^/]+/([^/]+)`)
-	match := regex.FindStringSubmatch(environment)
-	return match[1]
 }
