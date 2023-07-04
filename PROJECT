@@ -1,12 +1,16 @@
 domain: lagoon.sh
 layout:
 - go.kubebuilder.io/v3
-projectName: watchconfigmaps
+ProjectName: watchconfigmaps
 repo: lagoon.sh/insights-remote
 resources:
 - controller: true
   group: core
   kind: ConfigMap
   path: k8s.io/api/core/v1
+  version: v1
+- controller: true
+  domain: lagoon.sh
+  kind: Namespace
   version: v1
 version: "3"

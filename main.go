@@ -20,17 +20,20 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"lagoon.sh/insights-remote/internal/service"
+	"lagoon.sh/insights-remote/internal/tokens"
+	"log"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/cheshir/go-mq"
 	"github.com/robfig/cron/v3"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
-	"log"
-	"os"
 	client2 "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"strconv"
-	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -48,17 +51,29 @@ import (
 )
 
 var (
-	scheme                       = runtime.NewScheme()
-	setupLog                     = ctrl.Log.WithName("setup")
-	mqEnable                     bool
-	mqUser                       string
-	mqPass                       string
-	mqHost                       string
-	mqPort                       string
-	rabbitReconnectRetryInterval int
-	burnAfterReading             bool
-	clearConfigmapCronSched      string
-	mqConfig                     mq.Config
+	scheme                           = runtime.NewScheme()
+	setupLog                         = ctrl.Log.WithName("setup")
+	mqEnable                         bool
+	mqUser                           string
+	mqPass                           string
+	mqHost                           string
+	mqPort                           string
+	rabbitReconnectRetryInterval     int
+	burnAfterReading                 bool
+	clearConfigmapCronSched          string
+	mqConfig                         mq.Config
+	insightsTokenSecret              string
+	enableNSReconciler               bool
+	enableCMReconciler               bool
+	enableInsightDeferred            bool //TODO: Better names for this
+	enableWebservice                 bool
+	tokenTargetLabel                 string
+	webservicePort                   string
+	generateTokenOnly                bool
+	generateTokenOnlyNamespace       string
+	generateTokenOnlyEnvironmentId   string
+	generateTokenOnlyProjectName     string
+	generateTokenOnlyEnvironmentName string
 )
 
 func init() {
@@ -116,11 +131,61 @@ func main() {
 	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
 		"The cron schedule specifying how often insightType configmaps should be cleared.")
 
+	flag.StringVar(&insightsTokenSecret, "insights-token-secret", "testsecret",
+		"The secret used to create the insights tokens used to communicate back to the webservice (can be set with env var INSIGHTS_TOKEN_SECRET).")
+	insightsTokenSecret = getEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
+
+	flag.BoolVar(&enableCMReconciler, "enable-configmap-reconciler", true,
+		"Enable the configmap reconciler.")
+
+	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
+		"enable-namespace-reconciler.")
+
+	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
+		"Delete insights after certain time.")
+
+	flag.BoolVar(&enableWebservice, "enable-webservice", true,
+		"Enables json endpoint for writing insights data.")
+
+	flag.StringVar(&tokenTargetLabel, "token-target-label", "",
+		"Constrain webservice token generation to namespaces with this label.")
+
+	flag.StringVar(&webservicePort, "webservice-port", "8888", "Port on which we expose the JSON webservice.")
+
+	flag.BoolVar(&generateTokenOnly, "generate-token-only", false, "Generate a token and exit.")
+
+	flag.StringVar(&generateTokenOnlyNamespace, "generate-token-only-namespace", "", "Namespace for which to generate a token.")
+
+	flag.StringVar(&generateTokenOnlyEnvironmentId, "generate-token-only-environment-id", "", "Environment ID for which to generate a token.")
+
+	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "Project name for which to generate a token.")
+
+	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "Environment name for which to generate a token.")
+
 	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
+
+	//Generate a token and exit if generateTokenOnly is set
+	if generateTokenOnly {
+		if generateTokenOnlyEnvironmentName == "" || generateTokenOnlyEnvironmentId == "" || generateTokenOnlyProjectName == "" || generateTokenOnlyNamespace == "" {
+			log.Fatal("generate-token-only requires all of generate-token-only-environment-name, generate-token-only-environment-id, generate-token-only-project-name and generate-token-only-namespace to be set")
+			os.Exit(1)
+		}
+		jwt, err := tokens.GenerateTokenForNamespace(insightsTokenSecret, tokens.NamespaceDetails{
+			Namespace:       generateTokenOnlyNamespace,
+			EnvironmentId:   generateTokenOnlyEnvironmentId,
+			ProjectName:     generateTokenOnlyProjectName,
+			EnvironmentName: generateTokenOnlyEnvironmentName,
+		})
+		if err != nil {
+			log.Fatal(err, "Unable to generate token")
+		}
+		fmt.Println(jwt)
+		os.Exit(0)
+	}
 
 	//Grab overrides from environment where appropriate
 	mqUser = getEnv("RABBITMQ_USERNAME", mqUser)
@@ -190,23 +255,53 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.ConfigMapReconciler{
-		Client:           mgr.GetClient(),
-		Scheme:           mgr.GetScheme(),
-		MessageQWriter:   mqWriteObject,
-		BurnAfterReading: burnAfterReading,
-		WriteToQueue:     mqEnable,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
-		os.Exit(1)
+	if enableCMReconciler {
+		if err = (&controllers.ConfigMapReconciler{
+			Client:           mgr.GetClient(),
+			Scheme:           mgr.GetScheme(),
+			MessageQWriter:   mqWriteObject,
+			BurnAfterReading: burnAfterReading,
+			WriteToQueue:     mqEnable,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("CM Reconciler disabled - skipping")
 	}
 
 	// Set up periodic removal of processed configmaps
 	if burnAfterReading {
 		startBurnAfterReadingCron(mgr)
+	} else {
+		log.Printf("Burn after reading disabled - skipping")
 	}
 
-	startInsightsDeferredClearCron(mgr)
+	if enableInsightDeferred {
+		startInsightsDeferredClearCron(mgr)
+	} else {
+		log.Printf("Insights deferred disabled - skipping")
+	}
+
+	if enableNSReconciler {
+		if err = (&controllers.NamespaceReconciler{
+			Client:            mgr.GetClient(),
+			Scheme:            mgr.GetScheme(),
+			InsightsJWTSecret: insightsTokenSecret,
+		}).SetupWithManager(mgr, tokenTargetLabel); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "Namespace")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("Namespace reconciler disabled - skipping")
+	}
+
+	if enableWebservice {
+		log.Println("Enabling JSON endpoint ...")
+		startInsightsEndpoint(mgr)
+	} else {
+		log.Printf("Namespace reconciler disabled - skipping")
+	}
 
 	//+kubebuilder:scaffold:builder
 
@@ -316,6 +411,11 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 		}
 	})
 	c.Start()
+}
+
+func startInsightsEndpoint(mgr manager.Manager) {
+	router := service.SetupRouter(insightsTokenSecret, mqWriteObject, mqEnable)
+	go router.Run(fmt.Sprintf(":%v", webservicePort))
 }
 
 func getEnv(key, fallback string) string {

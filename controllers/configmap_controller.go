@@ -19,6 +19,10 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"k8s.io/apimachinery/pkg/types"
+	"strconv"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -28,8 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"strconv"
-	"time"
 )
 
 const InsightsLabel = "lagoon.sh/insightsType"
@@ -41,6 +43,8 @@ type LagoonInsightsMessage struct {
 	BinaryPayload map[string][]byte `json:"binaryPayload"`
 	Annotations   map[string]string `json:"annotations"`
 	Labels        map[string]string `json:"labels"`
+	Environment   string            `json:"environment"`
+	Project       string            `json:"project"`
 }
 
 // ConfigMapReconciler reconciles a ConfigMap object
@@ -74,11 +78,28 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	var nameSpace corev1.Namespace
+	if err := r.Get(ctx, types.NamespacedName{Name: req.Namespace}, &nameSpace); err != nil {
+		log.Error(err, "Unable to load Namespace")
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	var environmentName string
+	var projectName string
+	labels := nameSpace.Labels
+	if _, ok := labels["lagoon.sh/environment"]; ok {
+		environmentName = labels["lagoon.sh/environment"]
+	} else if _, ok := labels["lagoon.sh/project"]; ok {
+		projectName = labels["lagoon.sh/project"]
+	}
+
 	var sendData = LagoonInsightsMessage{
 		Payload:       configMap.Data,
 		BinaryPayload: configMap.BinaryData,
 		Annotations:   configMap.Annotations,
 		Labels:        configMap.Labels,
+		Environment:   environmentName,
+		Project:       projectName,
 	}
 
 	marshalledData, err := json.Marshal(sendData)

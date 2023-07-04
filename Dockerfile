@@ -1,5 +1,5 @@
 # Build the manager binary
-FROM golang:1.16-alpine as builder
+FROM golang:1.18-alpine as builder
 
 WORKDIR /workspace
 # Copy the Go Modules manifests
@@ -13,6 +13,7 @@ RUN go mod download
 COPY main.go main.go
 #COPY api/ api/
 COPY controllers/ controllers/
+COPY internal/ internal/
 COPY cmlib/ cmlib/
 
 # Build
