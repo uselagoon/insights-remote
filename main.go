@@ -20,33 +20,28 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/cheshir/go-mq"
+	"github.com/robfig/cron/v3"
+	lagoonv1beta1 "github.com/uselagoon/remote-controller/apis/lagoon/v1beta1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"lagoon.sh/insights-remote/controllers"
 	"lagoon.sh/insights-remote/internal/service"
 	"lagoon.sh/insights-remote/internal/tokens"
 	"log"
 	"os"
-	"strconv"
-	"time"
-
-	"github.com/cheshir/go-mq"
-	"github.com/robfig/cron/v3"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
-	client2 "sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	client2 "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	"lagoon.sh/insights-remote/controllers"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"strconv"
+	"time"
 	//+kubebuilder:scaffold:imports
 )
 
@@ -78,7 +73,8 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
+	// Register custom types
+	utilruntime.Must(lagoonv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -255,7 +251,18 @@ func main() {
 		os.Exit(1)
 	}
 
-	if enableCMReconciler {
+	if enableCMReconciler == true {
+
+		if err = (&controllers.LagoonBuildReconciler{
+			Client:           mgr.GetClient(),
+			Scheme:           mgr.GetScheme(),
+			MessageQWriter:   mqWriteObject,
+			BurnAfterReading: burnAfterReading,
+			WriteToQueue:     mqEnable,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create controller", "controller", "LagoonBuild")
+			os.Exit(1)
+		}
 		if err = (&controllers.ConfigMapReconciler{
 			Client:           mgr.GetClient(),
 			Scheme:           mgr.GetScheme(),
