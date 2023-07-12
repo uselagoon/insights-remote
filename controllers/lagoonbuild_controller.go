@@ -9,8 +9,10 @@ import (
 	"lagoon.sh/insights-remote/service"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
 	lagoonv1beta1 "github.com/uselagoon/remote-controller/apis/lagoon/v1beta1"
 )
@@ -23,6 +25,8 @@ type LagoonBuildReconciler struct {
 	WriteToQueue     bool
 	BurnAfterReading bool
 }
+
+const BuildStatusLabel = "lagoon.sh/buildStatus"
 
 func (r *LagoonBuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
@@ -51,7 +55,7 @@ func (r *LagoonBuildReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	// }
 
 	// Run SBOM scan on images
-	err = service.RunSbomScan(images, namespace, buildName, prroject, environment)
+	err = service.RunSbomScanInPod(r.Client, images, namespace, buildName, prroject, environment)
 	if err != nil {
 		log.Error(err, "Failed to run SBOM scan:")
 	}
@@ -61,6 +65,39 @@ func (r *LagoonBuildReconciler) Reconcile(ctx context.Context, req ctrl.Request)
 	return ctrl.Result{}, nil
 }
 
+func buildHasCopmleted(event client.Object) bool {
+	for k, v := range event.GetLabels() {
+		if k == BuildStatusLabel && v == "Complete" {
+			return true
+		}
+	}
+	return false
+}
+
+func completeBuildsOnlyPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event event.CreateEvent) bool {
+			if labelExists(BuildStatusLabel, event.Object) &&
+				buildHasCopmleted(event.Object) {
+				// !insightsProcessedAnnotationExists(event.Object) {
+				return true
+			}
+			return false
+		},
+		UpdateFunc: func(event event.UpdateEvent) bool {
+			if labelExists(BuildStatusLabel, event.ObjectNew) &&
+				buildHasCopmleted(event.ObjectNew) {
+				// !insightsProcessedAnnotationExists(event.ObjectNew) {
+				return true
+			}
+			return false
+		},
+		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
+			return false
+		},
+	}
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *LagoonBuildReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// Assign the manager to the reconciler
@@ -68,6 +105,6 @@ func (r *LagoonBuildReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&lagoonv1beta1.LagoonBuild{}).
-		// WithEventFilter(insightLabelsOnlyPredicate()).
+		WithEventFilter(completeBuildsOnlyPredicate()).
 		Complete(r)
 }
