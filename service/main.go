@@ -12,9 +12,14 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/cri-api/pkg/errors"
+	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
@@ -23,12 +28,12 @@ const (
 	TmpDir          = "/tmp"
 	SbomOutput      = "cyclonedx-json"
 	ImageInspectCmd = "skopeo"
+	defaultTimeout  = 5 * time.Minute
 )
 
 func RunGetImageList(mgr manager.Manager, namespace string) ([]string, error) {
 	ctx := context.TODO()
 
-	// Retrieve the list of pods in the namespace
 	podList := &corev1.PodList{}
 	err := mgr.GetClient().List(ctx, podList, client.InNamespace(namespace))
 	if err != nil {
@@ -39,7 +44,6 @@ func RunGetImageList(mgr manager.Manager, namespace string) ([]string, error) {
 		}
 	}
 
-	// Collect image names from the pods
 	images := make(map[string]bool)
 	for _, pod := range podList.Items {
 		for _, container := range pod.Spec.Containers {
@@ -49,7 +53,6 @@ func RunGetImageList(mgr manager.Manager, namespace string) ([]string, error) {
 		}
 	}
 
-	// Create an array to store unique image names
 	var uniqueImages []string
 	for image := range images {
 		uniqueImages = append(uniqueImages, image)
@@ -91,6 +94,243 @@ func RunImageInspect(imageFull, outputFilePath string) error {
 	return nil
 }
 
+func RunSbomScanInPod(client client.Client, images []string, namespace string, buildName string, project string, environment string) error {
+	fmt.Println("Running sbom scan using syft")
+
+	// TEST
+	// images = []string{"harbor.test6.amazee.io/magento2-example-simple/main/php@sha256:fc99ea8f795ec9509541808f555151c4937602bd59cc5701735e06bc120c7f69"}
+	// project = "magento2-example-simple"
+	// environment = "main"
+	// buildName = "lagoon-build-5x9c4t"
+	// namespace = "magento2-example-simple-main"
+
+	// fmt.Println(images)
+	// fmt.Println(namespace)
+	// fmt.Println(project)
+	// fmt.Println(environment)
+	// fmt.Println(buildName)
+
+	tmpDir := "/tmp"
+
+	for _, image := range images {
+		imageName, err := ExtractImageName(image)
+		if err != nil {
+			fmt.Printf("Error extracting image name: %v\n", err)
+		}
+
+		// @TODO need a better way to get service/image name here
+		service := path.Base(imageName)
+		// fmt.Println(service)
+
+		terminationGracePeriodSeconds := int64(600)
+
+		// Create a Pod spec
+		pod := &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "insights-runner-" + service,
+				Namespace:    namespace,
+				Labels: map[string]string{
+					"lagoon.sh/buildName": buildName,
+				},
+			},
+			Spec: v1.PodSpec{
+				ServiceAccountName:            "lagoon-deployer",
+				TerminationGracePeriodSeconds: &terminationGracePeriodSeconds,
+				Containers: []v1.Container{
+					{
+						Name:  "syft-and-skopeo-runner",
+						Image: "imagecache.amazeeio.cloud/uselagoon/build-deploy-image:edge",
+						Command: []string{
+							"/bin/sh",
+							"-c",
+							fmt.Sprintf(`
+TMP_DIR="%s"
+IMAGE_FULL="%s"
+SERVICE="%s"
+NAMESPACE="%s"
+PROJECT="%s"
+ENVIRONMENT="%s"
+LAGOON_BUILD_NAME="%s"
+
+SBOM_OUTPUT="cyclonedx-json"
+SBOM_OUTPUT_FILE="${TMP_DIR}/${IMAGE_FULL}.cyclonedx.json.gz"
+SBOM_CONFIGMAP="lagoon-insights-sbom-${SERVICE}"
+IMAGE_INSPECT_CONFIGMAP="lagoon-insights-image-${SERVICE}"
+IMAGE_INSPECT_OUTPUT_FILE="${TMP_DIR}/${IMAGE_FULL}.image-inspect.json.gz"
+
+
+echo "TMP_DIR=\"$TMP_DIR\""
+echo "IMAGE_FULL=\"$IMAGE_FULL\""
+echo "SERVICE=\"$SERVICE\""
+echo "NAMESPACE=\"$NAMESPACE\""
+echo "PROJECT=\"$PROJECT\""
+echo "ENVIRONMENT=\"$ENVIRONMENT\""
+echo "LAGOON_BUILD_NAME=\"$LAGOON_BUILD_NAME\""
+
+echo "SBOM_OUTPUT=\"cyclonedx-json\""
+echo "SBOM_OUTPUT_FILE=\"$TMP_DIR/$IMAGE_FULL.cyclonedx.json.gz\""
+echo "SBOM_CONFIGMAP=\"lagoon-insights-sbom-$SERVICE\""
+echo "IMAGE_INSPECT_CONFIGMAP=\"lagoon-insights-image-$SERVICE\""
+echo "IMAGE_INSPECT_OUTPUT_FILE=\"$TMP_DIR/$IMAGE_FULL.image-inspect.json.gz\""
+
+
+
+set +x
+
+echo "Running image inspect on: ${IMAGE_FULL}"
+
+# Check if the directory exists, create it if not
+IMAGE_INSPECT_DIR=$(dirname "$IMAGE_INSPECT_OUTPUT_FILE")
+if [ ! -d "$IMAGE_INSPECT_DIR" ]; then
+  mkdir -p "$IMAGE_INSPECT_DIR"
+  echo "Directory $IMAGE_INSPECT_DIR created successfully"
+fi
+
+skopeo inspect --retry-times 5 docker://${IMAGE_FULL} --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE}
+
+processImageInspect() {
+  echo "Successfully generated image inspection data for ${IMAGE_FULL}"
+
+  # If lagoon-insights-image-inpsect-[IMAGE] configmap already exists then we need to update, else create new
+  if kubectl -n ${NAMESPACE} get configmap $IMAGE_INSPECT_CONFIGMAP &> /dev/null; then
+      kubectl \
+          -n ${NAMESPACE} \
+          create configmap $IMAGE_INSPECT_CONFIGMAP \
+          --from-file=${IMAGE_INSPECT_OUTPUT_FILE} \
+          -o json \
+          --dry-run=client | kubectl replace -f -
+  else
+      kubectl \
+          -n ${NAMESPACE} \
+          create configmap ${IMAGE_INSPECT_CONFIGMAP} \
+          --from-file=${IMAGE_INSPECT_OUTPUT_FILE}
+  fi
+  kubectl \
+      -n ${NAMESPACE} \
+      label configmap ${IMAGE_INSPECT_CONFIGMAP} \
+      lagoon.sh/insightsProcessed- \
+      lagoon.sh/insightsType=image-gz \
+      lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
+      lagoon.sh/project=${PROJECT} \
+      lagoon.sh/environment=${ENVIRONMENT} \
+      lagoon.sh/service=${IMAGE_NAME}
+}
+
+processImageInspect
+
+
+echo "Running sbom scan using syft"
+echo "Image being scanned: ${IMAGE_FULL}"
+
+SBOM_OUTPUT_DIR=$(dirname "$SBOM_OUTPUT_FILE")
+if [ ! -d "$SBOM_OUTPUT_DIR" ]; then
+  mkdir -p "$SBOM_OUTPUT_DIR"
+  echo "Directory $SBOM_OUTPUT_DIR created successfully"
+fi
+
+# Check if the SBOM_OUTPUT_FILE exists, create it if not
+if [ ! -f "$SBOM_OUTPUT_FILE" ]; then
+  touch "$SBOM_OUTPUT_FILE"
+  echo "File $SBOM_OUTPUT_FILE created successfully"
+fi
+
+DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE}
+
+FILESIZE=$(du -b "$SBOM_OUTPUT_FILE" | awk '{print $1}')
+echo "Size of ${SBOM_OUTPUT_FILE} = $FILESIZE bytes."
+
+processSbom() {
+  if (( $FILESIZE > 950000 )); then
+    echo "$SBOM_OUTPUT_FILE is too large, skipping pushing to configmap"
+    return
+  else
+
+    if kubectl -n ${NAMESPACE} get configmap $SBOM_CONFIGMAP &> /dev/null; then
+        kubectl \
+            -n ${NAMESPACE} \
+            create configmap $SBOM_CONFIGMAP \
+            --from-file=${SBOM_OUTPUT_FILE} \
+            -o json \
+            --dry-run=client | kubectl replace -f -
+    else
+        kubectl \
+            -n ${NAMESPACE} \
+            create configmap ${SBOM_CONFIGMAP} \
+            --from-file=${SBOM_OUTPUT_FILE}
+    fi
+
+    echo "Successfully generated SBOM for ${IMAGE_FULL}"
+
+    kubectl \
+        -n ${NAMESPACE} \
+        label configmap ${SBOM_CONFIGMAP} \
+        lagoon.sh/insightsProcessed- \
+        lagoon.sh/insightsType=sbom-gz \
+        lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
+        lagoon.sh/project=${PROJECT} \
+        lagoon.sh/environment=${ENVIRONMENT} \
+        lagoon.sh/service=${SERVICE}
+  fi
+}
+
+processSbom
+`,
+								tmpDir, imageName, service, namespace, project, environment, buildName),
+						},
+						// VolumeMounts: []v1.VolumeMount{
+						// 	{
+						// 		Name:      "docker-sock",
+						// 		MountPath: "/var/run/docker.sock",
+						// 	},
+						// },
+					},
+				},
+				// Volumes: []v1.Volume{
+				// 	{
+				// 		Name: "docker-sock",
+				// 		VolumeSource: v1.VolumeSource{
+				// 			HostPath: &v1.HostPathVolumeSource{
+				// 				Path: "/var/run/docker.sock",
+				// 			},
+				// 		},
+				// 	},
+				// },
+				RestartPolicy: v1.RestartPolicyNever,
+			},
+		}
+
+		// Create the Pod
+		err = client.Create(context.Background(), pod)
+		if err != nil {
+			klog.Fatalf("Failed to create Pod: %v", err)
+		}
+
+		// Wait for the Pod to be running
+		err = waitForPodRunning(client, namespace, pod.Name, defaultTimeout)
+		if err != nil {
+			klog.Fatalf("Failed to wait for Pod to be running: %v", err)
+		}
+
+		fmt.Printf("Pod %s finished running\n", pod.Name)
+	}
+	return nil
+}
+
+// waitForPodRunning waits for the specified Pod to be in the Running phase.
+func waitForPodRunning(c client.Client, namespace, podName string, timeout time.Duration) error {
+	return wait.PollImmediate(2*time.Second, timeout, func() (bool, error) {
+		pod := &corev1.Pod{}
+		err := c.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: podName}, pod)
+		if err != nil {
+			return false, fmt.Errorf("failed to get Pod %s: %w", podName, err)
+		}
+		if pod.Status.Phase == corev1.PodRunning {
+			return true, nil
+		}
+		return false, nil
+	})
+}
+
 func RunSbomScan(images []string, namespace string, buildName string, project string, environment string) error {
 	fmt.Println("Running sbom scan using syft")
 
@@ -116,16 +356,16 @@ func RunSbomScan(images []string, namespace string, buildName string, project st
 		}
 
 		// check if image exists
-		// exists, err := ImageExists(imageName)
-		// if err != nil {
-		// 	log.Printf("Error checking if image %s exists: %v\n", imageName, err)
-		// 	continue
-		// }
+		exists, err := ImageExists(imageName)
+		if err != nil {
+			log.Printf("Error checking if image %s exists: %v\n", imageName, err)
+			continue
+		}
 
-		// if !exists {
-		// 	log.Printf("Image %s does not exist. Skipping scan.\n", imageName)
-		// 	continue
-		// }
+		if !exists {
+			log.Printf("Image %s does not exist. Skipping scan.\n", imageName)
+			continue
+		}
 
 		sbomOutputFile := fmt.Sprintf("/tmp/%s.cyclonedx.json", imageName)
 
