@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -34,7 +33,7 @@ const (
 func RunGetImageList(mgr manager.Manager, namespace string) ([]string, error) {
 	ctx := context.TODO()
 
-	podList := &corev1.PodList{}
+	podList := &v1.PodList{}
 	err := mgr.GetClient().List(ctx, podList, client.InNamespace(namespace))
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -112,6 +111,12 @@ func RunSbomScanInPod(client client.Client, images []string, namespace string, b
 
 	tmpDir := "/tmp"
 
+	harborAdmin := os.Getenv("HARBOR_ADMIN")
+	harborAdminPassword := os.Getenv("HARBOR_ADMIN_PASSWORD")
+	if harborAdmin == "" {
+		harborAdmin = "admin"
+	}
+
 	for _, image := range images {
 		imageName, err := ExtractImageName(image)
 		if err != nil {
@@ -177,105 +182,149 @@ echo "IMAGE_INSPECT_OUTPUT_FILE=\"$TMP_DIR/$IMAGE_FULL.image-inspect.json.gz\""
 
 set +x
 
-echo "Running image inspect on: ${IMAGE_FULL}"
+runSkopeoInspect() {
+  echo "Running image inspect on: ${IMAGE_FULL}"
 
-# Check if the directory exists, create it if not
-IMAGE_INSPECT_DIR=$(dirname "$IMAGE_INSPECT_OUTPUT_FILE")
-if [ ! -d "$IMAGE_INSPECT_DIR" ]; then
-  mkdir -p "$IMAGE_INSPECT_DIR"
-  echo "Directory $IMAGE_INSPECT_DIR created successfully"
-fi
-
-skopeo inspect --retry-times 5 docker://${IMAGE_FULL} --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE}
-
-processImageInspect() {
-  echo "Successfully generated image inspection data for ${IMAGE_FULL}"
-
-  # If lagoon-insights-image-inpsect-[IMAGE] configmap already exists then we need to update, else create new
-  if kubectl -n ${NAMESPACE} get configmap $IMAGE_INSPECT_CONFIGMAP &> /dev/null; then
-      kubectl \
-          -n ${NAMESPACE} \
-          create configmap $IMAGE_INSPECT_CONFIGMAP \
-          --from-file=${IMAGE_INSPECT_OUTPUT_FILE} \
-          -o json \
-          --dry-run=client | kubectl replace -f -
-  else
-      kubectl \
-          -n ${NAMESPACE} \
-          create configmap ${IMAGE_INSPECT_CONFIGMAP} \
-          --from-file=${IMAGE_INSPECT_OUTPUT_FILE}
+  # Check if the directory exists, create it if not
+  IMAGE_INSPECT_DIR=$(dirname "$IMAGE_INSPECT_OUTPUT_FILE")
+  if [ ! -d "$IMAGE_INSPECT_DIR" ]; then
+    mkdir -p "$IMAGE_INSPECT_DIR"
+    echo "Directory $IMAGE_INSPECT_DIR created successfully"
   fi
-  kubectl \
-      -n ${NAMESPACE} \
-      label configmap ${IMAGE_INSPECT_CONFIGMAP} \
-      lagoon.sh/insightsProcessed- \
-      lagoon.sh/insightsType=image-gz \
-      lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
-      lagoon.sh/project=${PROJECT} \
-      lagoon.sh/environment=${ENVIRONMENT} \
-      lagoon.sh/service=${IMAGE_NAME}
+
+  #skopeo_output=$(skopeo inspect --creds=${HARBOR_ADMIN}:${HARBOR_ADMIN_PASSWORD} --retry-times 5 docker://${IMAGE_FULL} --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE})
+  skopeo_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 skopeo inspect --creds=${HARBOR_ADMIN}:${HARBOR_ADMIN_PASSWORD} --retry-times 5 docker-daemon:${IMAGE_FULL}:latest --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE})
+
+  if [ $? -eq 0 ]; then
+    echo "Image inspection successful."
+  else
+    echo "Error: Skopeo command failed. Skipping image inspection..."
+    return 1
+  fi
 }
 
-processImageInspect
+# Function to process image inspection
+processImageInspect() {
+  # Check if the skopeo command was successful before proceeding
+  if [ $? -ne 0 ]; then
+    echo "Error: Skopeo command failed. Skipping image inspection..."
+    return
+  fi
 
+  # If lagoon-insights-image-inpsect-[IMAGE] configmap already exists then we need to update, else create new
+  # if kubectl -n ${NAMESPACE} get configmap $IMAGE_INSPECT_CONFIGMAP &> /dev/null; then
+  #     kubectl \
+  #         -n ${NAMESPACE} \
+  #         create configmap $IMAGE_INSPECT_CONFIGMAP \
+  #         --from-file=${IMAGE_INSPECT_OUTPUT_FILE} \
+  #         -o json \
+  #         --dry-run=client | kubectl replace -f -
+  # else
+  #     kubectl \
+  #         -n ${NAMESPACE} \
+  #         create configmap ${IMAGE_INSPECT_CONFIGMAP} \
+  #         --from-file=${IMAGE_INSPECT_OUTPUT_FILE}
+  # fi
+  # kubectl \
+  #     -n ${NAMESPACE} \
+  #     label configmap ${IMAGE_INSPECT_CONFIGMAP} \
+  #     lagoon.sh/insightsProcessed- \
+  #     lagoon.sh/insightsType=image-gz \
+  #     lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
+  #     lagoon.sh/project=${PROJECT} \
+  #     lagoon.sh/environment=${ENVIRONMENT} \
+  #     lagoon.sh/service=${IMAGE_NAME}
 
-echo "Running sbom scan using syft"
-echo "Image being scanned: ${IMAGE_FULL}"
+  echo "Image inspection completed successfully."
+}
 
-SBOM_OUTPUT_DIR=$(dirname "$SBOM_OUTPUT_FILE")
-if [ ! -d "$SBOM_OUTPUT_DIR" ]; then
-  mkdir -p "$SBOM_OUTPUT_DIR"
-  echo "Directory $SBOM_OUTPUT_DIR created successfully"
-fi
+# Function to run syft packages command
+runSyftPackages() {
+  echo "Running sbom scan using syft: ${IMAGE_FULL}"
 
-# Check if the SBOM_OUTPUT_FILE exists, create it if not
-if [ ! -f "$SBOM_OUTPUT_FILE" ]; then
-  touch "$SBOM_OUTPUT_FILE"
-  echo "File $SBOM_OUTPUT_FILE created successfully"
-fi
+  SBOM_OUTPUT_DIR=$(dirname "$SBOM_OUTPUT_FILE")
+  if [ ! -d "$SBOM_OUTPUT_DIR" ]; then
+    mkdir -p "$SBOM_OUTPUT_DIR"
+    echo "Directory $SBOM_OUTPUT_DIR created successfully"
+  fi
 
-DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE}
+  # Check if the SBOM_OUTPUT_FILE exists, create it if not
+  if [ ! -f "$SBOM_OUTPUT_FILE" ]; then
+    touch "$SBOM_OUTPUT_FILE"
+    echo "File $SBOM_OUTPUT_FILE created successfully"
+  fi
 
-FILESIZE=$(du -b "$SBOM_OUTPUT_FILE" | awk '{print $1}')
-echo "Size of ${SBOM_OUTPUT_FILE} = $FILESIZE bytes."
+  syft_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE})
 
+  # Check the exit status of the syft command
+  if [ $? -eq 0 ]; then
+		return 0
+  else
+    echo "Error: Syft command failed. Skipping SBOM processing..."
+    return 1
+  fi
+}
+
+# Function to process SBOM
 processSbom() {
+	FILESIZE=$(du -b "$SBOM_OUTPUT_FILE" | awk '{print $1}')
+	echo "Size of ${SBOM_OUTPUT_FILE} = $FILESIZE bytes."
+	
   if (( $FILESIZE > 950000 )); then
     echo "$SBOM_OUTPUT_FILE is too large, skipping pushing to configmap"
     return
   else
-
-    if kubectl -n ${NAMESPACE} get configmap $SBOM_CONFIGMAP &> /dev/null; then
-        kubectl \
-            -n ${NAMESPACE} \
-            create configmap $SBOM_CONFIGMAP \
-            --from-file=${SBOM_OUTPUT_FILE} \
-            -o json \
-            --dry-run=client | kubectl replace -f -
-    else
-        kubectl \
-            -n ${NAMESPACE} \
-            create configmap ${SBOM_CONFIGMAP} \
-            --from-file=${SBOM_OUTPUT_FILE}
+    if [ $? -ne 0 ]; then
+      echo "Error: Syft command failed. Skipping SBOM processing..."
+      return
     fi
 
-    echo "Successfully generated SBOM for ${IMAGE_FULL}"
+    # if kubectl -n ${NAMESPACE} get configmap $SBOM_CONFIGMAP &> /dev/null; then
+    #   kubectl \
+    #     -n ${NAMESPACE} \
+    #     create configmap $SBOM_CONFIGMAP \
+    #     --from-file=${SBOM_OUTPUT_FILE} \
+    #     -o json \
+    #     --dry-run=client | kubectl replace -f -
+    # else
+    #   kubectl \
+    #     -n ${NAMESPACE} \
+    #     create configmap ${SBOM_CONFIGMAP} \
+    #     --from-file=${SBOM_OUTPUT_FILE}
+    # fi
 
-    kubectl \
-        -n ${NAMESPACE} \
-        label configmap ${SBOM_CONFIGMAP} \
-        lagoon.sh/insightsProcessed- \
-        lagoon.sh/insightsType=sbom-gz \
-        lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
-        lagoon.sh/project=${PROJECT} \
-        lagoon.sh/environment=${ENVIRONMENT} \
-        lagoon.sh/service=${SERVICE}
+    # kubectl \
+    #   -n ${NAMESPACE} \
+    #   label configmap ${SBOM_CONFIGMAP} \
+    #   lagoon.sh/insightsProcessed- \
+    #   lagoon.sh/insightsType=sbom-gz \
+    #   lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
+    #   lagoon.sh/project=${PROJECT} \
+    #   lagoon.sh/environment=${ENVIRONMENT} \
+    #   lagoon.sh/service=${SERVICE}
+
+    echo "Successfully generated SBOM for ${IMAGE_FULL}"
   fi
 }
 
-processSbom
+runSkopeoInspect
+processImageInspect
+
+if runSyftPackages; then
+  processSbom
+fi
 `,
 								tmpDir, imageName, service, namespace, project, environment, buildName),
+						},
+						Env: []v1.EnvVar{
+							{
+								Name:  "HARBOR_ADMIN",
+								Value: harborAdmin,
+							},
+							{
+								Name:  "HARBOR_ADMIN_PASSWORD",
+								Value: harborAdminPassword,
+							},
 						},
 						// VolumeMounts: []v1.VolumeMount{
 						// 	{
@@ -319,12 +368,12 @@ processSbom
 // waitForPodRunning waits for the specified Pod to be in the Running phase.
 func waitForPodRunning(c client.Client, namespace, podName string, timeout time.Duration) error {
 	return wait.PollImmediate(2*time.Second, timeout, func() (bool, error) {
-		pod := &corev1.Pod{}
+		pod := &v1.Pod{}
 		err := c.Get(context.Background(), client.ObjectKey{Namespace: namespace, Name: podName}, pod)
 		if err != nil {
 			return false, fmt.Errorf("failed to get Pod %s: %w", podName, err)
 		}
-		if pod.Status.Phase == corev1.PodRunning {
+		if pod.Status.Phase == v1.PodRunning {
 			return true, nil
 		}
 		return false, nil
@@ -511,7 +560,7 @@ func RunSbomScan(images []string, namespace string, buildName string, project st
 func ImageExists(image string) (bool, error) {
 	dockerHost := os.Getenv("DOCKER_HOST_PORT")
 	if dockerHost == "" {
-		dockerHost = "tcp://docker-host.lagoon.svc:2375"
+		dockerHost = "tcp://docker-host.lagoon.svc.cluster.local:2375"
 	}
 	dockerCmd := exec.Command("docker", "image", "inspect", image)
 	dockerCmd.Env = append(os.Environ(), fmt.Sprintf("DOCKER_HOST=%s", dockerHost))
