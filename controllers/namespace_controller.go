@@ -92,15 +92,15 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// let's verify this to make sure it looks good
 		if val, ok := v.Data["INSIGHTS_TOKEN"]; ok {
 			namespaceDetails, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.InsightsJWTSecret, string(val))
-
 			if err != nil {
-				log.Error(err, "Unable to decode token")
-				return ctrl.Result{}, err
-			}
-			if namespaceDetails.Namespace != ns.GetName() {
+				// If we can't validate this secret, we should really just recreate it
 				deleteSecretMessage = fmt.Sprintf("Token is invalid - namespaces '%v'!='%v'.", ns.GetName(), namespaceDetails.Namespace)
 			}
-			foundItem = true
+			if deleteSecretMessage != "" && namespaceDetails.Namespace != ns.GetName() {
+				deleteSecretMessage = fmt.Sprintf("Token is invalid - namespaces '%v'!='%v'.", ns.GetName(), namespaceDetails.Namespace)
+			} else {
+				foundItem = true
+			}
 		} else {
 			//we delete this secret straight
 			deleteSecretMessage = "key INSIGHTS_TOKEN does not exist. Secret is invalid."
