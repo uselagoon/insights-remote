@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -33,8 +34,8 @@ const (
 func RunGetImageList(mgr manager.Manager, namespace string) ([]string, error) {
 	ctx := context.TODO()
 
-	podList := &v1.PodList{}
-	err := mgr.GetClient().List(ctx, podList, client.InNamespace(namespace))
+	deploymentList := &appsv1.DeploymentList{}
+	err := mgr.GetClient().List(ctx, deploymentList, client.InNamespace(namespace))
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.Fatalf("Namespace not found: %s", namespace)
@@ -44,11 +45,9 @@ func RunGetImageList(mgr manager.Manager, namespace string) ([]string, error) {
 	}
 
 	images := make(map[string]bool)
-	for _, pod := range podList.Items {
-		for _, container := range pod.Spec.Containers {
-			if !strings.Contains(container.Image, "build-deploy-image") {
-				images[container.Image] = true
-			}
+	for _, deployment := range deploymentList.Items {
+		for _, container := range deployment.Spec.Template.Spec.Containers {
+			images[container.Image] = true
 		}
 	}
 
@@ -112,7 +111,6 @@ func RunSbomScanInPod(client client.Client, images []string, namespace string, b
 	tmpDir := "/tmp"
 
 	harborAdmin := os.Getenv("HARBOR_ADMIN")
-	harborAdminPassword := os.Getenv("HARBOR_ADMIN_PASSWORD")
 	if harborAdmin == "" {
 		harborAdmin = "admin"
 	}
@@ -121,6 +119,12 @@ func RunSbomScanInPod(client client.Client, images []string, namespace string, b
 		imageName, err := ExtractImageName(image)
 		if err != nil {
 			fmt.Printf("Error extracting image name: %v\n", err)
+		}
+
+		// check if image is in docker-host first
+		imageExistsOnDockerHost, err := checkIfImageExistsInDockerHost(image)
+		if err != nil {
+			fmt.Printf("Error checking docker-host for image: %v\n", err)
 		}
 
 		// @TODO need a better way to get service/image name here
@@ -150,6 +154,7 @@ func RunSbomScanInPod(client client.Client, images []string, namespace string, b
 							"-c",
 							fmt.Sprintf(`
 TMP_DIR="%s"
+IMAGE_EXISTS_ON_DOCKER_HOST="%v"
 IMAGE_FULL="%s"
 SERVICE="%s"
 NAMESPACE="%s"
@@ -165,6 +170,7 @@ IMAGE_INSPECT_OUTPUT_FILE="${TMP_DIR}/${IMAGE_FULL}.image-inspect.json.gz"
 
 
 echo "TMP_DIR=\"$TMP_DIR\""
+echo "IMAGE_EXISTS_ON_DOCKER_HOST=\"$IMAGE_EXISTS_ON_DOCKER_HOST\""
 echo "IMAGE_FULL=\"$IMAGE_FULL\""
 echo "SERVICE=\"$SERVICE\""
 echo "NAMESPACE=\"$NAMESPACE\""
@@ -178,7 +184,14 @@ echo "SBOM_CONFIGMAP=\"lagoon-insights-sbom-$SERVICE\""
 echo "IMAGE_INSPECT_CONFIGMAP=\"lagoon-insights-image-$SERVICE\""
 echo "IMAGE_INSPECT_OUTPUT_FILE=\"$TMP_DIR/$IMAGE_FULL.image-inspect.json.gz\""
 
+DOCKER_CONFIG=/config
 
+# Extract username and password from the DOCKER_CONFIG_CONTENT variable
+harbor_username=$(echo $DOCKER_CONFIG_CONTENT | jq -r '.auths["harbor.test6.amazee.io"].username')
+harbor_password=$(echo $DOCKER_CONFIG_CONTENT | jq -r '.auths["harbor.test6.amazee.io"].password')
+
+export HARBOR_ADMIN="$harbor_username"
+export HARBOR_ADMIN_PASSWORD="$harbor_password"
 
 set +x
 
@@ -192,10 +205,15 @@ runSkopeoInspect() {
     echo "Directory $IMAGE_INSPECT_DIR created successfully"
   fi
 
-  #skopeo_output=$(skopeo inspect --creds=${HARBOR_ADMIN}:${HARBOR_ADMIN_PASSWORD} --retry-times 5 docker://${IMAGE_FULL} --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE})
-  skopeo_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 skopeo inspect --creds=${HARBOR_ADMIN}:${HARBOR_ADMIN_PASSWORD} --retry-times 5 docker-daemon:${IMAGE_FULL}:latest --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE})
+	if "$IMAGE_EXISTS_ON_DOCKER_HOST"; then
+		echo "running against docker-daemon"
+		skopeo_output=$(skopeo inspect --daemon-host=http://docker-host.lagoon.svc.cluster.local:2375 --retry-times 5 docker-daemon:${IMAGE_FULL}:latest --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE})
+	else
+		echo "running skopeo against registry"
+		skopeo_output=$(skopeo inspect --creds=${HARBOR_ADMIN}:${HARBOR_ADMIN_PASSWORD} --retry-times 5 docker://${IMAGE_FULL} --tls-verify=false | gzip > ${IMAGE_INSPECT_OUTPUT_FILE})
+	fi
 
-  if [ $? -eq 0 ]; then
+	if [ $? -eq 0 ]; then
     echo "Image inspection successful."
   else
     echo "Error: Skopeo command failed. Skipping image inspection..."
@@ -254,7 +272,14 @@ runSyftPackages() {
     echo "File $SBOM_OUTPUT_FILE created successfully"
   fi
 
-  syft_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE})
+  if "$IMAGE_EXISTS_ON_DOCKER_HOST"; then
+  	echo "running against docker-daemon"
+	syft_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE})
+
+  else
+	echo "running against registry"
+	syft_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v $DOCKER_CONFIG:/config -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE})
+  fi
 
   # Check the exit status of the syft command
   if [ $? -eq 0 ]; then
@@ -267,10 +292,10 @@ runSyftPackages() {
 
 # Function to process SBOM
 processSbom() {
-	FILESIZE=$(du -b "$SBOM_OUTPUT_FILE" | awk '{print $1}')
-	echo "Size of ${SBOM_OUTPUT_FILE} = $FILESIZE bytes."
-	
-  if (( $FILESIZE > 950000 )); then
+  FILESIZE=$(du -b "$SBOM_OUTPUT_FILE" | cut -f1)
+  echo "Size of ${SBOM_OUTPUT_FILE} = $FILESIZE bytes."
+
+  if [ "$FILESIZE" -gt 950000 ]; then
     echo "$SBOM_OUTPUT_FILE is too large, skipping pushing to configmap"
     return
   else
@@ -314,7 +339,7 @@ if runSyftPackages; then
   processSbom
 fi
 `,
-								tmpDir, imageName, service, namespace, project, environment, buildName),
+								tmpDir, imageExistsOnDockerHost, imageName, service, namespace, project, environment, buildName),
 						},
 						Env: []v1.EnvVar{
 							{
@@ -322,28 +347,47 @@ fi
 								Value: harborAdmin,
 							},
 							{
-								Name:  "HARBOR_ADMIN_PASSWORD",
-								Value: harborAdminPassword,
+								Name: "DOCKER_CONFIG_CONTENT",
+								ValueFrom: &v1.EnvVarSource{
+									SecretKeyRef: &v1.SecretKeySelector{
+										LocalObjectReference: v1.LocalObjectReference{
+											Name: "lagoon-internal-registry-secret",
+										},
+										Key: ".dockerconfigjson",
+									},
+								},
 							},
 						},
-						// VolumeMounts: []v1.VolumeMount{
-						// 	{
-						// 		Name:      "docker-sock",
-						// 		MountPath: "/var/run/docker.sock",
-						// 	},
-						// },
+						VolumeMounts: []v1.VolumeMount{
+							{
+								Name:      "docker-sock",
+								MountPath: "/var/run/docker.sock",
+							},
+							{
+								Name:      "docker-config",
+								MountPath: "/config",
+							},
+						},
 					},
 				},
-				// Volumes: []v1.Volume{
-				// 	{
-				// 		Name: "docker-sock",
-				// 		VolumeSource: v1.VolumeSource{
-				// 			HostPath: &v1.HostPathVolumeSource{
-				// 				Path: "/var/run/docker.sock",
-				// 			},
-				// 		},
-				// 	},
-				// },
+				Volumes: []v1.Volume{
+					{
+						Name: "docker-sock",
+						VolumeSource: v1.VolumeSource{
+							HostPath: &v1.HostPathVolumeSource{
+								Path: "/var/run/docker.sock",
+							},
+						},
+					},
+					{
+						Name: "docker-config",
+						VolumeSource: v1.VolumeSource{
+							Secret: &v1.SecretVolumeSource{
+								SecretName: "lagoon-internal-registry-secret",
+							},
+						},
+					},
+				},
 				RestartPolicy: v1.RestartPolicyNever,
 			},
 		}
@@ -363,6 +407,25 @@ fi
 		fmt.Printf("Pod %s finished running\n", pod.Name)
 	}
 	return nil
+}
+
+func checkIfImageExistsInDockerHost(imageName string) (bool, error) {
+	cmd := exec.Command("DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375", "docker", "images")
+	grepCmd := exec.Command("grep", imageName)
+
+	grepCmd.Stdin, _ = cmd.StdoutPipe()
+
+	output, err := grepCmd.Output()
+	if err != nil {
+		fmt.Printf("Cannot find image on Docker host: %v\n", err)
+		return false, err
+	}
+
+	if len(output) > 0 {
+		return false, nil
+	} else {
+		return true, nil
+	}
 }
 
 // waitForPodRunning waits for the specified Pod to be in the Running phase.
