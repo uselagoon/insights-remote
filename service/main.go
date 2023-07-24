@@ -123,9 +123,9 @@ func RunSbomScanInPod(client client.Client, images []string, namespace string, b
 
 		// check if image is in docker-host first
 		imageExistsOnDockerHost, err := checkIfImageExistsInDockerHost(image)
-		if err != nil {
-			fmt.Printf("Error checking docker-host for image: %v\n", err)
-		}
+		// if err != nil {
+		// 	fmt.Printf("Image not found in docker-host")
+		// }
 
 		// @TODO need a better way to get service/image name here
 		service := path.Base(imageName)
@@ -184,8 +184,6 @@ echo "SBOM_CONFIGMAP=\"lagoon-insights-sbom-$SERVICE\""
 echo "IMAGE_INSPECT_CONFIGMAP=\"lagoon-insights-image-$SERVICE\""
 echo "IMAGE_INSPECT_OUTPUT_FILE=\"$TMP_DIR/$IMAGE_FULL.image-inspect.json.gz\""
 
-DOCKER_CONFIG=/config
-
 # Extract username and password from the DOCKER_CONFIG_CONTENT variable
 harbor_username=$(echo $DOCKER_CONFIG_CONTENT | jq -r '.auths["harbor.test6.amazee.io"].username')
 harbor_password=$(echo $DOCKER_CONFIG_CONTENT | jq -r '.auths["harbor.test6.amazee.io"].password')
@@ -230,28 +228,28 @@ processImageInspect() {
   fi
 
   # If lagoon-insights-image-inpsect-[IMAGE] configmap already exists then we need to update, else create new
-  # if kubectl -n ${NAMESPACE} get configmap $IMAGE_INSPECT_CONFIGMAP &> /dev/null; then
-  #     kubectl \
-  #         -n ${NAMESPACE} \
-  #         create configmap $IMAGE_INSPECT_CONFIGMAP \
-  #         --from-file=${IMAGE_INSPECT_OUTPUT_FILE} \
-  #         -o json \
-  #         --dry-run=client | kubectl replace -f -
-  # else
-  #     kubectl \
-  #         -n ${NAMESPACE} \
-  #         create configmap ${IMAGE_INSPECT_CONFIGMAP} \
-  #         --from-file=${IMAGE_INSPECT_OUTPUT_FILE}
-  # fi
-  # kubectl \
-  #     -n ${NAMESPACE} \
-  #     label configmap ${IMAGE_INSPECT_CONFIGMAP} \
-  #     lagoon.sh/insightsProcessed- \
-  #     lagoon.sh/insightsType=image-gz \
-  #     lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
-  #     lagoon.sh/project=${PROJECT} \
-  #     lagoon.sh/environment=${ENVIRONMENT} \
-  #     lagoon.sh/service=${IMAGE_NAME}
+  if kubectl -n ${NAMESPACE} get configmap $IMAGE_INSPECT_CONFIGMAP &> /dev/null; then
+      kubectl \
+          -n ${NAMESPACE} \
+          create configmap $IMAGE_INSPECT_CONFIGMAP \
+          --from-file=${IMAGE_INSPECT_OUTPUT_FILE} \
+          -o json \
+          --dry-run=client | kubectl replace -f -
+  else
+      kubectl \
+          -n ${NAMESPACE} \
+          create configmap ${IMAGE_INSPECT_CONFIGMAP} \
+          --from-file=${IMAGE_INSPECT_OUTPUT_FILE}
+  fi
+  kubectl \
+      -n ${NAMESPACE} \
+      label configmap ${IMAGE_INSPECT_CONFIGMAP} \
+      lagoon.sh/insightsProcessed- \
+      lagoon.sh/insightsType=image-gz \
+      lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
+      lagoon.sh/project=${PROJECT} \
+      lagoon.sh/environment=${ENVIRONMENT} \
+      lagoon.sh/service=${IMAGE_NAME}
 
   echo "Image inspection completed successfully."
 }
@@ -272,21 +270,23 @@ runSyftPackages() {
     echo "File $SBOM_OUTPUT_FILE created successfully"
   fi
 
+  # Run syft packages command against docker-daemon or registry
   if "$IMAGE_EXISTS_ON_DOCKER_HOST"; then
-  	echo "running against docker-daemon"
-	syft_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE})
-
+	echo "running against docker-daemon"
+	DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE} 2>/dev/null
   else
 	echo "running against registry"
-	syft_output=$(DOCKER_HOST=tcp://docker-host.lagoon.svc.cluster.local:2375 docker run --rm -v $DOCKER_CONFIG:/config -v /var/run/docker.sock:/var/run/docker.sock imagecache.amazeeio.cloud/anchore/syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE})
+	DOCKER_CONFIG=/config syft packages ${IMAGE_FULL} --quiet -o ${SBOM_OUTPUT} | gzip > ${SBOM_OUTPUT_FILE} 2>/dev/null
   fi
 
   # Check the exit status of the syft command
-  if [ $? -eq 0 ]; then
-		return 0
+  syft_exit_status=$?
+  if [ $syft_exit_status -eq 0 ]; then
+	echo "Syft command succeeded. SBOM scan completed successfully."
   else
-    echo "Error: Syft command failed. Skipping SBOM processing..."
-    return 1
+	echo "Error: Syft command failed with exit status $syft_exit_status. The following error was encountered:"
+	echo "$syft_output"
+	return 1
   fi
 }
 
@@ -297,36 +297,32 @@ processSbom() {
 
   if [ "$FILESIZE" -gt 950000 ]; then
     echo "$SBOM_OUTPUT_FILE is too large, skipping pushing to configmap"
-    return
+    return 1
   else
-    if [ $? -ne 0 ]; then
-      echo "Error: Syft command failed. Skipping SBOM processing..."
-      return
+
+    if kubectl -n ${NAMESPACE} get configmap $SBOM_CONFIGMAP &> /dev/null; then
+      kubectl \
+        -n ${NAMESPACE} \
+        create configmap $SBOM_CONFIGMAP \
+        --from-file=${SBOM_OUTPUT_FILE} \
+        -o json \
+        --dry-run=client | kubectl replace -f -
+    else
+      kubectl \
+        -n ${NAMESPACE} \
+        create configmap ${SBOM_CONFIGMAP} \
+        --from-file=${SBOM_OUTPUT_FILE}
     fi
 
-    # if kubectl -n ${NAMESPACE} get configmap $SBOM_CONFIGMAP &> /dev/null; then
-    #   kubectl \
-    #     -n ${NAMESPACE} \
-    #     create configmap $SBOM_CONFIGMAP \
-    #     --from-file=${SBOM_OUTPUT_FILE} \
-    #     -o json \
-    #     --dry-run=client | kubectl replace -f -
-    # else
-    #   kubectl \
-    #     -n ${NAMESPACE} \
-    #     create configmap ${SBOM_CONFIGMAP} \
-    #     --from-file=${SBOM_OUTPUT_FILE}
-    # fi
-
-    # kubectl \
-    #   -n ${NAMESPACE} \
-    #   label configmap ${SBOM_CONFIGMAP} \
-    #   lagoon.sh/insightsProcessed- \
-    #   lagoon.sh/insightsType=sbom-gz \
-    #   lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
-    #   lagoon.sh/project=${PROJECT} \
-    #   lagoon.sh/environment=${ENVIRONMENT} \
-    #   lagoon.sh/service=${SERVICE}
+    kubectl \
+      -n ${NAMESPACE} \
+      label configmap ${SBOM_CONFIGMAP} \
+      lagoon.sh/insightsProcessed- \
+      lagoon.sh/insightsType=sbom-gz \
+      lagoon.sh/buildName=${LAGOON_BUILD_NAME} \
+      lagoon.sh/project=${PROJECT} \
+      lagoon.sh/environment=${ENVIRONMENT} \
+      lagoon.sh/service=${SERVICE}
 
     echo "Successfully generated SBOM for ${IMAGE_FULL}"
   fi
@@ -384,6 +380,12 @@ fi
 						VolumeSource: v1.VolumeSource{
 							Secret: &v1.SecretVolumeSource{
 								SecretName: "lagoon-internal-registry-secret",
+								Items: []v1.KeyToPath{
+									{
+										Key:  ".dockerconfigjson",
+										Path: "config.json",
+									},
+								},
 							},
 						},
 					},
