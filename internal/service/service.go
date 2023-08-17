@@ -62,8 +62,6 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 		return
 	}
 
-	fmt.Println(details)
-
 	//let's force our facts to get pushed to the right place
 	lid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
 	if err != nil {
