@@ -29,7 +29,7 @@ func resetWriterOutput() {
 	queueWriterOutput = ""
 }
 
-func TestWriteRoute(t *testing.T) {
+func TestWriteFactsRoute(t *testing.T) {
 	defer resetWriterOutput()
 	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
 	w := httptest.NewRecorder()
@@ -64,4 +64,46 @@ func TestWriteRoute(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), w.Body.String())
 	assert.Contains(t, queueWriterOutput, testFacts.Facts[0].Name)
+}
+
+func TestWriteProblemsRoute(t *testing.T) {
+	defer resetWriterOutput()
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	w := httptest.NewRecorder()
+
+	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
+		Namespace:       secretTestNamespace,
+		EnvironmentId:   "1",
+		ProjectName:     "Test",
+		EnvironmentName: "Test",
+	})
+
+	require.NoError(t, err)
+
+	testFacts := internal.Problems{
+		Problems: []internal.Problem{
+			internal.Problem{
+				EnvironmentId:     "1",
+				Identifier:        "123",
+				Version:           "1",
+				FixedVersion:      "2",
+				Source:            "a unique sources",
+				Service:           "test",
+				Data:              "test",
+				Severity:          "1",
+				SeverityScore:     1,
+				AssociatedPackage: "test",
+				Description:       "test",
+				Links:             "test",
+			},
+		}}
+	bodyString, _ := json.Marshal(testFacts)
+	req, _ := http.NewRequest(http.MethodPost, "/problems", bytes.NewBuffer(bodyString))
+	req.Header.Set("Authorization", token)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Contains(t, w.Body.String(), w.Body.String())
+	assert.Contains(t, queueWriterOutput, testFacts.Problems[0].Source)
 }
