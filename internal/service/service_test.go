@@ -82,7 +82,7 @@ func TestWriteProblemsRoute(t *testing.T) {
 
 	testFacts := internal.Problems{
 		Problems: []internal.Problem{
-			internal.Problem{
+			{
 				EnvironmentId:     "1",
 				Identifier:        "123",
 				Version:           "1",
