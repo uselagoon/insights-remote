@@ -24,7 +24,7 @@ type Facts struct {
 type ProblemSeverityRating string
 
 type Problem struct {
-	EnvironmentId     string                `json:"environment"`
+	EnvironmentId     int                   `json:"environment"`
 	Identifier        string                `json:"identifier"`
 	Version           string                `json:"version,omitempty"`
 	FixedVersion      string                `json:"fixedVersion,omitempty"`

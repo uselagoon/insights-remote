@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 
@@ -54,8 +55,9 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 	//TODO: drop "InsightsType" for Type of the form "direct.fact"/"direct.problem"
 	//details := &internal.Facts{Type: "direct.problems"}
 	details := &internal.Problems{Type: "direct.problems"}
+	problemList := *new([]internal.Problem)
 
-	if err = c.ShouldBindJSON(details); err != nil {
+	if err = c.ShouldBindJSON(&problemList); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status":  "Unable to parse incoming data",
 			"message": err.Error(),
@@ -78,8 +80,9 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 	details.EnvironmentId = int(lid)
 	details.ProjectName = namespace.ProjectName
 	details.EnvironmentName = namespace.EnvironmentName
+	details.Problems = problemList
 	for i := range details.Problems {
-		details.Problems[i].EnvironmentId = namespace.EnvironmentId
+		details.Problems[i].EnvironmentId = int(lid)
 
 		if details.Problems[i].Source == "" {
 			details.Problems[i].Source = "InsightsRemoteWebService"
@@ -131,13 +134,21 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 	//TODO: drop "InsightsType" for Type of the form "direct.fact"/"direct.problem"
 	details := &internal.Facts{Type: "direct.facts"}
 
-	if err = c.ShouldBindJSON(details); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"status":  "Unable to parse incoming data",
-			"message": err.Error(),
-		})
-		fmt.Println(err)
-		return
+	// we try two different ways of parsing incoming facts - first as a simple list of facts
+	ByteBody, _ := ioutil.ReadAll(c.Request.Body)
+
+	factList := *new([]internal.Fact)
+	if err = json.Unmarshal(ByteBody, &factList); err != nil { // it might just be they're passing the "big" version with all details
+		if err = json.Unmarshal(ByteBody, details); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"status":  "Unable to parse incoming data",
+				"message": err.Error(),
+			})
+			fmt.Println(err)
+			return
+		}
+	} else {
+		details.Facts = factList
 	}
 
 	//let's force our facts to get pushed to the right place
