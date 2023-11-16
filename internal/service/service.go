@@ -52,8 +52,6 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 
 	fmt.Println("Going to write to namespace ", namespace)
 
-	//TODO: drop "InsightsType" for Type of the form "direct.fact"/"direct.problem"
-	//details := &internal.Facts{Type: "direct.problems"}
 	details := &internal.Problems{Type: "direct.problems"}
 	problemList := *new([]internal.Problem)
 
