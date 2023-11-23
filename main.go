@@ -115,42 +115,42 @@ func main() {
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
 	flag.BoolVar(&mqEnable, "rabbitmq-enabled", true,
-		"Used primarily for debugging to disable the Message Broker connection.")
+		"Used primarily for debugging to disable the Message Broker connection (env var: RABBITMQ_ENABLED).")
 	flag.StringVar(&mqUser, "rabbitmq-username", "guest",
-		"The username of the rabbitmq user.")
+		"The username of the rabbitmq user (env var: RABBITMQ_USERNAME).")
 	flag.StringVar(&mqPass, "rabbitmq-password", "guest",
-		"The password for the rabbitmq user.")
+		"The password for the rabbitmq user (env var: RABBITMQ_PASSWORD).")
 	flag.StringVar(&mqHost, "rabbitmq-hostname", "localhost",
-		"The hostname for the rabbitmq host.")
+		"The hostname for the rabbitmq host (env var: RABBITMQ_ADDRESS).")
 	flag.StringVar(&mqPort, "rabbitmq-port", "5672",
-		"The port for the rabbitmq host.")
+		"The port for the rabbitmq host (env var: RABBITMQ_PORT).")
 	flag.IntVar(&rabbitReconnectRetryInterval, "rabbitmq-reconnect-retry-interval", 30,
 		"The retry interval for rabbitmq.")
 	flag.BoolVar(&burnAfterReading, "burn-after-reading", false,
-		"Remove insights configmaps after they have been processed.")
+		"Remove insights configmaps after they have been processed (env var: BURN_AFTER_READING).")
 	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
-		"The cron schedule specifying how often insightType configmaps should be cleared.")
+		"The cron schedule specifying how often insightType configmaps should be cleared (env var: CLEAR_CONFIGMAP_SCHED).")
 
 	flag.StringVar(&insightsTokenSecret, "insights-token-secret", "testsecret",
-		"The secret used to create the insights tokens used to communicate back to the webservice (can be set with env var INSIGHTS_TOKEN_SECRET).")
-	insightsTokenSecret = getEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
+		"The secret used to create the insights tokens used to communicate back to the webservice (env var: INSIGHTS_TOKEN_SECRET).")
 
 	flag.BoolVar(&enableCMReconciler, "enable-configmap-reconciler", true,
-		"Enable the configmap reconciler.")
+		"Enable the configmap reconciler (env var: ENABLE_CONFIGMAP_RECONCILER).")
 
 	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
-		"enable-namespace-reconciler.")
+		"enable-namespace-reconciler (env var: ENABLE_NAMESPACE_RECONCILER).")
 
 	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
-		"Delete insights after certain time.")
+		"Delete insights after certain time (env var: ENABLE_INSIGHTS_DEFERRED).")
 
 	flag.BoolVar(&enableWebservice, "enable-webservice", true,
-		"Enables json endpoint for writing insights data.")
+		"Enables json endpoint for writing insights data (env var: ENABLE_WEBSERVICE).")
 
 	flag.StringVar(&tokenTargetLabel, "token-target-label", "",
-		"Constrain webservice token generation to namespaces with this label.")
+		"Constrain webservice token generation to namespaces with this label (env var: TOKEN_TARGET_LABEL).")
 
-	flag.StringVar(&webservicePort, "webservice-port", "8888", "Port on which we expose the JSON webservice.")
+	flag.StringVar(&webservicePort, "webservice-port", "8888",
+		"Port on which we expose the JSON webservice (env var: WEBSERVICE_PORT).")
 
 	flag.BoolVar(&generateTokenOnly, "generate-token-only", false, "Generate a token and exit.")
 
@@ -188,11 +188,22 @@ func main() {
 	}
 
 	//Grab overrides from environment where appropriate
+
 	mqUser = getEnv("RABBITMQ_USERNAME", mqUser)
 	mqPass = getEnv("RABBITMQ_PASSWORD", mqPass)
 	mqHost = getEnv("RABBITMQ_ADDRESS", mqHost)
+	//rabbitReconnectRetryInterval = getEnv("RABBITMQ_RECONNECT_RETRY_INTERVAL", rabbitReconnectRetryInterval)
+	mqEnable = getEnvBool("RABBITMQ_ENABLED", mqEnable)
 	mqPort = getEnv("RABBITMQ_PORT", mqPort)
 
+	insightsTokenSecret = getEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
+	clearConfigmapCronSched = getEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
+	enableCMReconciler = getEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
+	enableInsightDeferred = getEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
+	enableNSReconciler = getEnvBool("ENABLE_NAMESPACE_RECONCILER", enableNSReconciler)
+	enableWebservice = getEnvBool("ENABLE_WEBSERVICE", enableWebservice)
+	tokenTargetLabel = getEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
+	webservicePort = getEnv("WEBSERVICE_PORT", webservicePort)
 	//Check burn after reading value from environment
 	if getEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
