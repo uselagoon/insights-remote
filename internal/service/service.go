@@ -76,7 +76,7 @@ func generateDeletionMessage(c *gin.Context, r *routerInstance, deletionType str
 		return
 	}
 
-	message := DeleteFactsMessage{
+	message := DirectDeleteMessage{
 		Type:          deletionType,
 		EnvironmentId: int(envid),
 		Source:        source,
