@@ -55,6 +55,21 @@ There are several parts to this - but from a user perspective it is fairly strai
 
 How this all works is coordinated across a few subsystems.
 
+#### Clearing facts and problems
+
+There are cases where clearing facts/problems for an environment _without_ writing a new set of insights.
+
+This is done by issuing a DELETE method call (with the authentication token in the header) to one of the following four endpoints
+
+* `http://lagoon-remote-insights-remote.lagoon.svc/facts/{SOURCE}`
+* `http://lagoon-remote-insights-remote.lagoon.svc/problems/{SOURCE}`
+* `http://lagoon-remote-insights-remote.lagoon.svc/facts/{SOURCE}/{SERVICE}`
+* `http://lagoon-remote-insights-remote.lagoon.svc/problems/{SOURCE}/{SERVICE}`
+
+Where `SOURCE` and `SERVICE` target the appropriate categorizations used generating the insights.
+
+Essentially these calls correspond to the "deleteProblemsFromSource" and "deleteFactsFromSource" Lagoon API calls
+
 #### Authorization Token
 
 The Authorization token is a JWT that is generated per project and environment by the insights-remote [namespace controller](controllers/namespace_controller.go)
