@@ -23,9 +23,6 @@ type routerInstance struct {
 	WriteToQueue   bool
 }
 
-const deleteFactsType = "direct.delete.facts"
-const deleteProblemsType = "direct.delete.problems"
-
 func SetupRouter(secret string, messageQWriter func(data []byte) error, writeToQueue bool) *gin.Engine {
 	router := gin.Default()
 	r := routerInstance{secret: secret}
