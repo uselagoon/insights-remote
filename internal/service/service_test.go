@@ -142,3 +142,49 @@ func TestWriteProblemsRoute(t *testing.T) {
 
 	assert.Contains(t, queueWriterOutput, testProblems[0].Source)
 }
+
+func TestFactDeletionRoute(t *testing.T) {
+	defer resetWriterOutput()
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	w := httptest.NewRecorder()
+
+	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
+		Namespace:       secretTestNamespace,
+		EnvironmentId:   testEnvironmentId,
+		ProjectName:     "Test",
+		EnvironmentName: "Test",
+	})
+
+	require.NoError(t, err)
+
+	var bodyString []byte
+	req, _ := http.NewRequest(http.MethodDelete, "/facts/testsource", bytes.NewBuffer(bodyString))
+	req.Header.Set("Authorization", token)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestProblemDeletionRoute(t *testing.T) {
+	defer resetWriterOutput()
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	w := httptest.NewRecorder()
+
+	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
+		Namespace:       secretTestNamespace,
+		EnvironmentId:   testEnvironmentId,
+		ProjectName:     "Test",
+		EnvironmentName: "Test",
+	})
+
+	require.NoError(t, err)
+
+	var bodyString []byte
+	req, _ := http.NewRequest(http.MethodDelete, "/problems/testsource", bytes.NewBuffer(bodyString))
+	req.Header.Set("Authorization", token)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}

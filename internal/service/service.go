@@ -30,7 +30,70 @@ func SetupRouter(secret string, messageQWriter func(data []byte) error, writeToQ
 	r.WriteToQueue = writeToQueue
 	router.POST("/facts", r.writeFacts)
 	router.POST("/problems", r.writeProblems)
+	router.DELETE("/problems/:source", r.deleteProblems)
+	router.DELETE("/problems/:source/:service", r.deleteProblems)
+	router.DELETE("/facts/:source", r.deleteFacts)
+	router.DELETE("/facts/:source/:service", r.deleteFacts)
 	return router
+}
+
+func (r *routerInstance) deleteProblems(c *gin.Context) {
+	generateDeletionMessage(c, r, deleteProblemsType)
+}
+
+func (r *routerInstance) deleteFacts(c *gin.Context) {
+	generateDeletionMessage(c, r, deleteFactsType)
+}
+
+func generateDeletionMessage(c *gin.Context, r *routerInstance, deletionType string) {
+	h := &AuthHeader{}
+	if err := c.ShouldBindHeader(&h); err != nil {
+		c.JSON(http.StatusOK, err)
+	}
+
+	namespace, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.secret, h.Authorization)
+
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"status":  "unauthorized",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	source := c.Params.ByName("source")
+	service := c.Params.ByName("service")
+
+	envid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"status":  "BAD REQUEST",
+			"message": err.Error(),
+		})
+		return
+	}
+
+	message := DirectDeleteMessage{
+		Type:          deletionType,
+		EnvironmentId: int(envid),
+		Source:        source,
+		Service:       service,
+	}
+
+	jsonRep, err := json.Marshal(message)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, err)
+		return
+	}
+
+	if err := r.writeToQueue(c, err, jsonRep); err != nil {
+		c.JSON(http.StatusInternalServerError, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "okay",
+	})
 }
 
 func (r *routerInstance) writeProblems(c *gin.Context) {
@@ -95,19 +158,26 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 		return
 	}
 
-	if r.WriteToQueue {
-		err = r.MessageQWriter(jsonRep)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, err)
-			return
-		}
-	} else {
-		fmt.Printf("Not writing to queue - would have sent these data %v\n", string(jsonRep))
+	if err := r.writeToQueue(c, err, jsonRep); err != nil {
+		c.JSON(http.StatusInternalServerError, err)
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "okay",
 	})
+}
+
+func (r *routerInstance) writeToQueue(c *gin.Context, err error, jsonRep []byte) error {
+	if r.WriteToQueue {
+		err = r.MessageQWriter(jsonRep)
+		if err != nil {
+			return err
+		}
+	} else {
+		fmt.Printf("Not writing to queue - would have sent these data %v\n", string(jsonRep))
+	}
+	return nil
 }
 
 func (r *routerInstance) writeFacts(c *gin.Context) {
