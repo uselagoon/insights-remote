@@ -37,6 +37,7 @@ import (
 const InsightsLabel = "lagoon.sh/insightsType"
 const InsightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
 const InsightsWriteDeferred = "lagoon.sh/insightsWriteDeferred"
+const InsightsCMErrorLabel = "insights.lagoon.sh/error"
 
 type LagoonInsightsMessage struct {
 	Payload       map[string]string `json:"payload"`
@@ -45,6 +46,7 @@ type LagoonInsightsMessage struct {
 	Labels        map[string]string `json:"labels"`
 	Environment   string            `json:"environment"`
 	Project       string            `json:"project"`
+	Type          string            `json:"type"`
 }
 
 // ConfigMapReconciler reconciles a ConfigMap object
@@ -93,40 +95,70 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		projectName = labels["lagoon.sh/project"]
 	}
 
-	var sendData = LagoonInsightsMessage{
-		Payload:       configMap.Data,
-		BinaryPayload: configMap.BinaryData,
-		Annotations:   configMap.Annotations,
-		Labels:        configMap.Labels,
-		Environment:   environmentName,
-		Project:       projectName,
+	// insightsType is a way for us to classify incoming insights data, passing
+	insightsType := "unclassified"
+	if _, ok := labels["insights.lagoon.sh/type"]; ok {
+		insightsType = labels["insights.lagoon.sh/type"]
+	} else {
+		// insightsType can be determined by the incoming data
+		if _, ok := labels["lagoon.sh/insightsType"]; ok {
+			switch labels["lagoon.sh/insightsType"] {
+			case ("sbom-gz"):
+				insightsType = "sbom"
+			case ("image-gz"):
+				insightsType = "inspect"
+			}
+		}
 	}
 
-	marshalledData, err := json.Marshal(sendData)
-	if err != nil {
-		log.Error(err, "Unable to marshall config data")
-		return ctrl.Result{}, err
-	}
-
-	err = r.MessageQWriter(marshalledData)
-
-	if err != nil {
-		log.Error(err, "Unable to write to message broker")
-
-		//In this case what we want to do is defer the processing to a couple minutes from now
-		future := time.Minute * 5
-		futureTime := time.Now().Add(future).Unix()
-		err = cmlib.LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
-
+	// We reject any type that isn't either sbom or inspect to restrict outgoing types
+	if insightsType != "sbom" && insightsType != "inspect" {
+		//// we mark this configMap as bad, and log an error
+		log.Error(nil, fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
+		err := cmlib.LabelCM(ctx, r.Client, configMap, InsightsCMErrorLabel, "invalid-type")
 		if err != nil {
 			log.Error(err, "Unable to update configmap")
 			return ctrl.Result{}, err
 		}
+	} else {
+		// Here we attempt to process types using the new name structure
 
-		return ctrl.Result{}, err
+		var sendData = LagoonInsightsMessage{
+			Payload:       configMap.Data,
+			BinaryPayload: configMap.BinaryData,
+			Annotations:   configMap.Annotations,
+			Labels:        configMap.Labels,
+			Environment:   environmentName,
+			Project:       projectName,
+			Type:          insightsType,
+		}
+
+		marshalledData, err := json.Marshal(sendData)
+		if err != nil {
+			log.Error(err, "Unable to marshall config data")
+			return ctrl.Result{}, err
+		}
+		err = r.MessageQWriter(marshalledData)
+
+		if err != nil {
+			log.Error(err, "Unable to write to message broker")
+
+			//In this case what we want to do is defer the processing to a couple minutes from now
+			future := time.Minute * 5
+			futureTime := time.Now().Add(future).Unix()
+			err = cmlib.LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
+
+			if err != nil {
+				log.Error(err, "Unable to update configmap")
+				return ctrl.Result{}, err
+			}
+
+			return ctrl.Result{}, err
+		}
+
 	}
 
-	err = cmlib.AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
+	err := cmlib.AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
 
 	if err != nil {
 		log.Error(err, "Unable to update configmap")
@@ -151,6 +183,7 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 		UpdateFunc: func(event event.UpdateEvent) bool {
 			if labelExists(InsightsLabel, event.ObjectNew) &&
 				!labelExists(InsightsWriteDeferred, event.ObjectNew) &&
+				!labelExists(InsightsCMErrorLabel, event.ObjectNew) && // We don't want to respond to errored out CMs
 				!insightsProcessedAnnotationExists(event.ObjectNew) {
 				return true
 			}
