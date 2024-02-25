@@ -97,13 +97,13 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// insightsType is a way for us to classify incoming insights data, passing
 	insightsType := "unclassified"
-	if _, ok := labels["insights.lagoon.sh/type"]; ok {
-		insightsType = labels["insights.lagoon.sh/type"]
+	if _, ok := configMap.Labels["insights.lagoon.sh/type"]; ok {
+		insightsType = configMap.Labels["insights.lagoon.sh/type"]
 		log.Info(fmt.Sprintf("Found insights.lagoon.sh/type:%v", insightsType))
 	} else {
 		// insightsType can be determined by the incoming data
 		if _, ok := labels["lagoon.sh/insightsType"]; ok {
-			switch labels["lagoon.sh/insightsType"] {
+			switch configMap.Labels["lagoon.sh/insightsType"] {
 			case ("sbom-gz"):
 				log.Info("Inferring insights type of sbom")
 				insightsType = "sbom"
