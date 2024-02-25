@@ -37,7 +37,6 @@ import (
 const InsightsLabel = "lagoon.sh/insightsType"
 const InsightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
 const InsightsWriteDeferred = "lagoon.sh/insightsWriteDeferred"
-const InsightsCMErrorLabel = "insights.lagoon.sh/error"
 
 type LagoonInsightsMessage struct {
 	Payload       map[string]string `json:"payload"`
@@ -115,11 +114,6 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if insightsType != "sbom" && insightsType != "inspect" {
 		//// we mark this configMap as bad, and log an error
 		log.Error(nil, fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
-		err := cmlib.LabelCM(ctx, r.Client, configMap, InsightsCMErrorLabel, "invalid-type")
-		if err != nil {
-			log.Error(err, "Unable to update configmap")
-			return ctrl.Result{}, err
-		}
 	} else {
 		// Here we attempt to process types using the new name structure
 
@@ -183,7 +177,6 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 		UpdateFunc: func(event event.UpdateEvent) bool {
 			if labelExists(InsightsLabel, event.ObjectNew) &&
 				!labelExists(InsightsWriteDeferred, event.ObjectNew) &&
-				!labelExists(InsightsCMErrorLabel, event.ObjectNew) && // We don't want to respond to errored out CMs
 				!insightsProcessedAnnotationExists(event.ObjectNew) {
 				return true
 			}
