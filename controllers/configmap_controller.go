@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/types"
 	"strconv"
@@ -98,13 +99,16 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	insightsType := "unclassified"
 	if _, ok := labels["insights.lagoon.sh/type"]; ok {
 		insightsType = labels["insights.lagoon.sh/type"]
+		log.Info(fmt.Sprintf("Found insights.lagoon.sh/type:%v", insightsType))
 	} else {
 		// insightsType can be determined by the incoming data
 		if _, ok := labels["lagoon.sh/insightsType"]; ok {
 			switch labels["lagoon.sh/insightsType"] {
 			case ("sbom-gz"):
+				log.Info("Inferring insights type of sbom")
 				insightsType = "sbom"
 			case ("image-gz"):
+				log.Info("Inferring insights type of inspect")
 				insightsType = "inspect"
 			}
 		}
@@ -113,7 +117,8 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// We reject any type that isn't either sbom or inspect to restrict outgoing types
 	if insightsType != "sbom" && insightsType != "inspect" {
 		//// we mark this configMap as bad, and log an error
-		log.Error(nil, fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
+		err := errors.New(fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
+		log.Error(err, err.Error())
 	} else {
 		// Here we attempt to process types using the new name structure
 
