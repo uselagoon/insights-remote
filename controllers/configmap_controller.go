@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/types"
 	"strconv"
@@ -45,6 +46,7 @@ type LagoonInsightsMessage struct {
 	Labels        map[string]string `json:"labels"`
 	Environment   string            `json:"environment"`
 	Project       string            `json:"project"`
+	Type          string            `json:"type"`
 }
 
 // ConfigMapReconciler reconciles a ConfigMap object
@@ -93,40 +95,69 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		projectName = labels["lagoon.sh/project"]
 	}
 
-	var sendData = LagoonInsightsMessage{
-		Payload:       configMap.Data,
-		BinaryPayload: configMap.BinaryData,
-		Annotations:   configMap.Annotations,
-		Labels:        configMap.Labels,
-		Environment:   environmentName,
-		Project:       projectName,
+	// insightsType is a way for us to classify incoming insights data, passing
+	insightsType := "unclassified"
+	if _, ok := configMap.Labels["insights.lagoon.sh/type"]; ok {
+		insightsType = configMap.Labels["insights.lagoon.sh/type"]
+		log.Info(fmt.Sprintf("Found insights.lagoon.sh/type:%v", insightsType))
+	} else {
+		// insightsType can be determined by the incoming data
+		if _, ok := configMap.Labels["lagoon.sh/insightsType"]; ok {
+			switch configMap.Labels["lagoon.sh/insightsType"] {
+			case ("sbom-gz"):
+				log.Info("Inferring insights type of sbom")
+				insightsType = "sbom"
+			case ("image-gz"):
+				log.Info("Inferring insights type of inspect")
+				insightsType = "inspect"
+			}
+		}
 	}
 
-	marshalledData, err := json.Marshal(sendData)
-	if err != nil {
-		log.Error(err, "Unable to marshall config data")
-		return ctrl.Result{}, err
-	}
+	// We reject any type that isn't either sbom or inspect to restrict outgoing types
+	if insightsType != "sbom" && insightsType != "inspect" {
+		//// we mark this configMap as bad, and log an error
+		err := errors.New(fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
+		log.Error(err, err.Error())
+	} else {
+		// Here we attempt to process types using the new name structure
 
-	err = r.MessageQWriter(marshalledData)
+		var sendData = LagoonInsightsMessage{
+			Payload:       configMap.Data,
+			BinaryPayload: configMap.BinaryData,
+			Annotations:   configMap.Annotations,
+			Labels:        configMap.Labels,
+			Environment:   environmentName,
+			Project:       projectName,
+			Type:          insightsType,
+		}
 
-	if err != nil {
-		log.Error(err, "Unable to write to message broker")
-
-		//In this case what we want to do is defer the processing to a couple minutes from now
-		future := time.Minute * 5
-		futureTime := time.Now().Add(future).Unix()
-		err = cmlib.LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
+		marshalledData, err := json.Marshal(sendData)
+		if err != nil {
+			log.Error(err, "Unable to marshall config data")
+			return ctrl.Result{}, err
+		}
+		err = r.MessageQWriter(marshalledData)
 
 		if err != nil {
-			log.Error(err, "Unable to update configmap")
+			log.Error(err, "Unable to write to message broker")
+
+			//In this case what we want to do is defer the processing to a couple minutes from now
+			future := time.Minute * 5
+			futureTime := time.Now().Add(future).Unix()
+			err = cmlib.LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
+
+			if err != nil {
+				log.Error(err, "Unable to update configmap")
+				return ctrl.Result{}, err
+			}
+
 			return ctrl.Result{}, err
 		}
 
-		return ctrl.Result{}, err
 	}
 
-	err = cmlib.AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
+	err := cmlib.AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
 
 	if err != nil {
 		log.Error(err, "Unable to update configmap")
