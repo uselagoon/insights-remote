@@ -6,7 +6,7 @@ require (
 	github.com/cheshir/go-mq v1.2.0
 	github.com/gin-gonic/gin v1.8.1
 	github.com/golang-jwt/jwt/v4 v4.4.2
-	github.com/onsi/ginkgo v1.14.1
+	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.10.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.8.1
@@ -54,7 +54,7 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
-	github.com/nxadm/tail v1.4.4 // indirect
+	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.5 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
