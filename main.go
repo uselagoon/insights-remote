@@ -307,6 +307,20 @@ func main() {
 		log.Printf("Namespace reconciler disabled - skipping")
 	}
 
+	enableScanner := true
+	if enableScanner {
+		if err = (&controllers.BuildReconciler{
+			Client:            mgr.GetClient(),
+			Scheme:            mgr.GetScheme(),
+			InsightsJWTSecret: insightsTokenSecret,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("Build reconciler disabled - skipping")
+	}
+
 	if enableWebservice {
 		log.Println("Enabling JSON endpoint ...")
 		startInsightsEndpoint(mgr)
