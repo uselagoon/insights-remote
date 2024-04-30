@@ -83,22 +83,19 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 
 			//TODO: need the logic here to find the appropriate types
 			// that is, successful and build pods
-			fmt.Printf("Got here")
+
 			labels := event.ObjectNew.GetLabels()
 			_, err := getValueFromMap(labels, "lagoon.sh/buildName")
-			fmt.Printf("A")
 			if err != nil {
-				fmt.Printf("Ae")
 				return false //this isn't a build pod
 			}
-			fmt.Printf("B")
+
 			val, err := getValueFromMap(labels, insightsScannedLabel)
-			if err != nil || val == "false" {
-				fmt.Printf("Be")
+			if err == nil && val == "false" {
 				return false
 			}
-			fmt.Printf("C")
 			return true
+
 		},
 		GenericFunc: func(genericEvent event.GenericEvent) bool {
 			return false
