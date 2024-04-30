@@ -35,6 +35,8 @@ type BuildReconciler struct {
 	InsightsJWTSecret string
 }
 
+const insightsScannedLabel = "insights.lagoon.sh/scanned"
+
 //+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=namespaces/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=core,resources=namespaces/finalizers,verbs=update
@@ -57,7 +59,18 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	fmt.Println(buildPod)
+	// we check the build pod itself to see if its status is good
+	if buildPod.Status.Phase == corev1.PodSucceeded {
+		labels := buildPod.GetLabels()
+		// Let's label the pod as having been seen
+		labels[insightsScannedLabel] = "true"
+		buildPod.SetLabels(labels)
+		err := r.Update(ctx, &buildPod)
+		if err != nil {
+			log.Error(err, fmt.Sprintf("Unable to update pod labels: %v", req.NamespacedName.String()))
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
 
 	return ctrl.Result{}, nil
 }
@@ -70,6 +83,15 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 
 			//TODO: need the logic here to find the appropriate types
 			// that is, successful and build pods
+			labels := event.ObjectNew.GetLabels()
+			_, err := getValueFromMap(labels, "lagoon.sh/buildName")
+			if err != nil {
+				return false //this isn't a build pod
+			}
+			val, err := getValueFromMap(labels, insightsScannedLabel)
+			if err != nil || val == "false" {
+				return false
+			}
 			return true
 		},
 		GenericFunc: func(genericEvent event.GenericEvent) bool {
