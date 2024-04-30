@@ -83,6 +83,7 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 
 			//TODO: need the logic here to find the appropriate types
 			// that is, successful and build pods
+			fmt.Printf("Got here")
 			labels := event.ObjectNew.GetLabels()
 			_, err := getValueFromMap(labels, "lagoon.sh/buildName")
 			fmt.Printf("A")
