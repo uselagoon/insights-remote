@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"strings"
 )
 
@@ -69,6 +70,23 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// we check the build pod itself to see if its status is good
 	if buildPod.Status.Phase == corev1.PodSucceeded {
 
+		// Fetch the Namespace of the Pod
+		namespace := &corev1.Namespace{}
+		err := r.Get(ctx, client.ObjectKey{Name: buildPod.Namespace}, namespace)
+		if err != nil {
+			log.Error(err, "Failed to get Namespace")
+			return reconcile.Result{}, client.IgnoreNotFound(err)
+		}
+
+		projectName, err := getNamespaceLabel(namespace.Labels, "lagoon.sh/project")
+		if err != nil {
+			return reconcile.Result{}, client.IgnoreNotFound(err)
+		}
+		envName, err := getNamespaceLabel(namespace.Labels, "lagoon.sh/environment")
+		if err != nil {
+			return reconcile.Result{}, client.IgnoreNotFound(err)
+		}
+
 		imageList, err := r.scanDeployments(ctx, req, buildPod.Namespace)
 		if err != nil {
 			log.Error(err, "Unable to scan deployments")
@@ -76,7 +94,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		// now we generate the pod spec we'd like to deploy
-		podspec, err := generateScanPodSpec(imageList, buildPod.Name, buildPod.Namespace)
+		podspec, err := generateScanPodSpec(imageList, buildPod.Name, buildPod.Namespace, projectName, envName)
 		if err != nil {
 			log.Error(err, "Unable to generate podspec")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -110,6 +128,15 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
+// GetNamespaceLabel returns the value of a given label key from the namespace labels
+func getNamespaceLabel(labels map[string]string, key string) (string, error) {
+	value, exists := labels[key]
+	if !exists {
+		return "", fmt.Errorf("label key '%s' not found", key)
+	}
+	return value, nil
+}
+
 // scanDeployments will look at all the deployments in a namespace and
 // if they're labeled correctly, bundle their images into a single scan
 func (r *BuildReconciler) scanDeployments(ctx context.Context, req ctrl.Request, namespace string) ([]string, error) {
@@ -135,7 +162,7 @@ func (r *BuildReconciler) scanDeployments(ctx context.Context, req ctrl.Request,
 	return imageList, nil
 }
 
-func generateScanPodSpec(images []string, buildName string, namespace string) (*corev1.Pod, error) {
+func generateScanPodSpec(images []string, buildName, namespace, projectName, environmentName string) (*corev1.Pod, error) {
 
 	if len(images) == 0 {
 		return nil, errors.New("No images to scan")
@@ -165,6 +192,14 @@ func generateScanPodSpec(images []string, buildName string, namespace string) (*
 						{
 							Name:  "NAMESPACE",
 							Value: namespace,
+						},
+						{
+							Name:  "PROJECT",
+							Value: projectName,
+						},
+						{
+							Name:  "ENVIRONMENT",
+							Value: environmentName,
 						},
 					},
 					ImagePullPolicy: "Always",
