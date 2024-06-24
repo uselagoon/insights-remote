@@ -42,7 +42,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 					Containers: []corev1.Container{
 						{
 							Name:  "scanner",
-							Image: scanImageName,
+							Image: "scanImageName",
 							Env: []corev1.EnvVar{
 								{
 									Name:  "INSIGHT_SCAN_IMAGES",
@@ -51,6 +51,14 @@ func Test_generateScanPodSpec(t *testing.T) {
 								{
 									Name:  "NAMESPACE",
 									Value: "testns",
+								},
+								{
+									Name:  "PROJECT",
+									Value: "projectName",
+								},
+								{
+									Name:  "ENVIRONMENT",
+									Value: "environmentName",
 								},
 							},
 							ImagePullPolicy: "Always",
@@ -83,7 +91,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := generateScanPodSpec(tt.args.images, tt.args.buildName, tt.args.namespace)
+			got, err := generateScanPodSpec(tt.args.images, "scanImageName", tt.args.buildName, tt.args.namespace, "projectName", "environmentName")
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateScanPodSpec() error = %v, wantErr %v", err, tt.wantErr)
 				return

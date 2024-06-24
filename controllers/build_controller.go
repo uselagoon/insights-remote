@@ -38,7 +38,7 @@ type BuildReconciler struct {
 	client.Client
 	Scheme            *runtime.Scheme
 	InsightsJWTSecret string
-	//ScanImageName     string // TODO: make this something that's passed as an argument
+	ScanImageName     string
 }
 
 const insightsScannedLabel = "insights.lagoon.sh/scanned"
@@ -94,7 +94,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		// now we generate the pod spec we'd like to deploy
-		podspec, err := generateScanPodSpec(imageList, buildPod.Name, buildPod.Namespace, projectName, envName)
+		podspec, err := generateScanPodSpec(imageList, r.ScanImageName, buildPod.Name, buildPod.Namespace, projectName, envName)
 		if err != nil {
 			log.Error(err, "Unable to generate podspec")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -162,7 +162,7 @@ func (r *BuildReconciler) scanDeployments(ctx context.Context, req ctrl.Request,
 	return imageList, nil
 }
 
-func generateScanPodSpec(images []string, buildName, namespace, projectName, environmentName string) (*corev1.Pod, error) {
+func generateScanPodSpec(images []string, scanImageName, buildName, namespace, projectName, environmentName string) (*corev1.Pod, error) {
 
 	if len(images) == 0 {
 		return nil, errors.New("No images to scan")
@@ -240,13 +240,22 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 	ns := client.InNamespace(namespace)
 	err := r.Client.List(ctx, podlist, ns, ls)
 	if err != nil {
+		log.Log.Info("Issue generating existing scan list")
 		return err
 	}
+	log.Log.Info("Comparing with: " + newScannerName)
 	for _, i := range podlist.Items {
-		if i.Name != newScannerName { // Then we have a rogue pod
-			//r.Client.Delete(ctx, &i)
-			log.Log.Info(fmt.Sprintf("Going to delete pod: %v", i.Name))
+
+		log.Log.Info("Looking at following image by name: " + i.Name)
+		//if i.Name != newScannerName { // Then we have a rogue pod
+		log.Log.Info("Deleting image")
+		err = r.Client.Delete(ctx, &i)
+		if err != nil {
+
+			return err
 		}
+		log.Log.Info(fmt.Sprintf("Going to delete pod: %v", i.Name))
+		//}
 	}
 	return nil
 }
@@ -254,7 +263,7 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 func imageScanPodLabels() map[string]string {
 	return map[string]string{
 		"insights.lagoon.sh/imagescanner": "scanning",
-		"lagoon.sh/buildName":             "notabuild",
+		"lagoon.sh/buildName":             "notabuild", //TODO: this only exists to give me appropriate permissions - change roles etc.
 	}
 }
 

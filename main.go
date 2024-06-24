@@ -74,6 +74,8 @@ var (
 	generateTokenOnlyEnvironmentId   string
 	generateTokenOnlyProjectName     string
 	generateTokenOnlyEnvironmentName string
+	enableBuildScanning              bool
+	buildScannerImage                string
 )
 
 func init() {
@@ -162,6 +164,12 @@ func main() {
 
 	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "Environment name for which to generate a token.")
 
+	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", true,
+		"Enables scanning of build images on successful builds (env var: ENABLE_BUILD_SCANNING).")
+
+	flag.StringVar(&buildScannerImage, "build-scanner-image", "imagecache.amazeeio.cloud/bomoko/insights-scan:latest",
+		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -204,6 +212,9 @@ func main() {
 	enableWebservice = getEnvBool("ENABLE_WEBSERVICE", enableWebservice)
 	tokenTargetLabel = getEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
 	webservicePort = getEnv("WEBSERVICE_PORT", webservicePort)
+	enableBuildScanning = getEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
+	buildScannerImage = getEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
 	//Check burn after reading value from environment
 	if getEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
@@ -307,12 +318,12 @@ func main() {
 		log.Printf("Namespace reconciler disabled - skipping")
 	}
 
-	enableScanner := true
-	if enableScanner {
+	if enableBuildScanning {
 		if err = (&controllers.BuildReconciler{
 			Client:            mgr.GetClient(),
 			Scheme:            mgr.GetScheme(),
 			InsightsJWTSecret: insightsTokenSecret,
+			ScanImageName:     buildScannerImage,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
 			os.Exit(1)
