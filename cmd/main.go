@@ -66,6 +66,7 @@ var (
 	mqUser                                   string
 	mqPass                                   string
 	mqHost                                   string
+	mqPort                                   string
 	mqTLS                                    bool
 	mqVerify                                 bool
 	mqCACert                                 string
@@ -87,6 +88,8 @@ var (
 	generateTokenOnlyEnvironmentId           string
 	generateTokenOnlyProjectName             string
 	generateTokenOnlyEnvironmentName         string
+	enableBuildScanning                      bool
+	buildScannerImage                        string
 	enableDependencyTrackIntegration         bool
 	dependencyTrackApiEndpoint               string
 	dependencyTrackApiKey                    string
@@ -187,6 +190,12 @@ func main() {
 	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "ProjectName name for which to generate a token.")
 	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "EnvironmentName name for which to generate a token.")
 
+	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", true,
+		"Enables scanning of build images on successful builds (env var: ENABLE_BUILD_SCANNING).")
+
+	flag.StringVar(&buildScannerImage, "build-scanner-image", "imagecache.amazeeio.cloud/bomoko/insights-scan:latest",
+		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
+
 	// Automatically parse logging flags.
 	opts := zap.Options{
 		Development: true,
@@ -218,10 +227,26 @@ func main() {
 	 * Env var overrides
 	 */
 
+	// Message queue.
+	mqUser = variables.GetEnv("RABBITMQ_USERNAME", mqUser)
+	mqPass = variables.GetEnv("RABBITMQ_PASSWORD", mqPass)
+	mqHost = variables.GetEnv("RABBITMQ_ADDRESS", mqHost)
+	mqPort = variables.GetEnv("RABBITMQ_PORT", mqPort)
+	mqEnable = variables.GetEnvBool("RABBITMQ_ENABLED", mqEnable)
+
 	// Insights processing.
-	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
+	insightsTokenSecret = variables.GetEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
 	clearConfigmapCronSched = variables.GetEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
+	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
+	enableNSReconciler = variables.GetEnvBool("ENABLE_NAMESPACE_RECONCILER", enableNSReconciler)
+	enableWebservice = variables.GetEnvBool("ENABLE_WEBSERVICE", enableWebservice)
+	tokenTargetLabel = variables.GetEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
+	webservicePort = variables.GetEnv("WEBSERVICE_PORT", webservicePort)
+	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
+	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
+	// Check burn after reading value from environment
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
 		burnAfterReading = true
@@ -412,12 +437,12 @@ func main() {
 		log.Printf("Namespace reconciler disabled - skipping")
 	}
 
-	enableScanner := true
-	if enableScanner {
+	if enableBuildScanning {
 		if err = (&controllers.BuildReconciler{
 			Client:            mgr.GetClient(),
 			Scheme:            mgr.GetScheme(),
 			InsightsJWTSecret: insightsTokenSecret,
+			ScanImageName:     buildScannerImage,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
 			os.Exit(1)
