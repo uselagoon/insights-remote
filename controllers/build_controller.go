@@ -41,7 +41,8 @@ type BuildReconciler struct {
 	ScanImageName     string
 }
 
-const insightsScannedLabel = "insights.lagoon.sh/scanned"
+const insightsBuildPodScannedLabel = "insights.lagoon.sh/scanned"
+const insightsScanPodLabel = "insights.lagoon.sh/scan-status"
 const dockerhost = "docker-host.lagoon.svc" //TODO in future versions this will be read from the build CRD
 
 //+kubebuilder:rbac:groups=core,resources=deployments,verbs=get;list
@@ -110,7 +111,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		labels := buildPod.GetLabels()
 		// Let's label the pod as having been seen
-		labels[insightsScannedLabel] = "true" // Right now this assumes a fire and forget style setup
+		labels[insightsBuildPodScannedLabel] = "true" // Right now this assumes a fire and forget style setup
 		// TODO: in the future we may want to have a slightly more complex approach to monitoring insights scans
 
 		buildPod.SetLabels(labels)
@@ -259,7 +260,7 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 
 func imageScanPodLabels() map[string]string {
 	return map[string]string{
-		"insights.lagoon.sh/imagescanner": "scanning",
+		insightsScanPodLabel: "scanning",
 	}
 }
 
@@ -289,12 +290,12 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 				return false //this isn't a build pod
 			}
 
-			_, err = getValueFromMap(labels, "insights.lagoon.sh/imagescanner")
+			_, err = getValueFromMap(labels, insightsScanPodLabel)
 			if err == nil {
 				return false //this isn't a build pod
 			}
 
-			val, err := getValueFromMap(labels, insightsScannedLabel)
+			val, err := getValueFromMap(labels, insightsBuildPodScannedLabel)
 			if err == nil {
 				log.Log.Info(fmt.Sprintf("Build pod already scanned, skipping : %v - value: %v", event.ObjectNew.GetName(), val))
 				return false
