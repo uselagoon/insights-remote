@@ -44,9 +44,10 @@ type BuildReconciler struct {
 const insightsScannedLabel = "insights.lagoon.sh/scanned"
 const dockerhost = "docker-host.lagoon.svc" //TODO in future versions this will be read from the build CRD
 
-//+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=namespaces/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=core,resources=namespaces/finalizers,verbs=update
+//+kubebuilder:rbac:groups=core,resources=deployments,verbs=get;list
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list
+//+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list
 
 // Reconcile is part of the Kubebuilder machinery - it kicks off when we find a build pod in the correct
 // state for scanning - i.e. whenever there's a successful build.
