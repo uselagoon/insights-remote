@@ -42,28 +42,21 @@ type BuildReconciler struct {
 }
 
 const insightsScannedLabel = "insights.lagoon.sh/scanned"
-const scanImageName = "imagecache.amazeeio.cloud/bomoko/insights-scan:latest"
+const dockerhost = "docker-host.lagoon.svc" //TODO in future versions this will be read from the build CRD
 
 //+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=namespaces/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=core,resources=namespaces/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the Namespace object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.12.2/pkg/reconcile
+// Reconcile is part of the Kubebuilder machinery - it kicks off when we find a build pod in the correct
+// state for scanning - i.e. whenever there's a successful build.
 func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.FromContext(ctx)
+	logger := log.FromContext(ctx).WithValues("NamespacedName", req.NamespacedName)
 
 	var buildPod corev1.Pod
 
 	if err := r.Get(ctx, req.NamespacedName, &buildPod); err != nil {
-		log.Error(err, "Unable to load Pod")
+		logger.Error(err, fmt.Sprintf("Unable to load Pod- %v", req.Namespace))
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -74,7 +67,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		namespace := &corev1.Namespace{}
 		err := r.Get(ctx, client.ObjectKey{Name: buildPod.Namespace}, namespace)
 		if err != nil {
-			log.Error(err, "Failed to get Namespace")
+			logger.Error(err, fmt.Sprintf("Unable to load namespace - %v", buildPod.Namespace))
 			return reconcile.Result{}, client.IgnoreNotFound(err)
 		}
 
@@ -89,38 +82,40 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		imageList, err := r.scanDeployments(ctx, req, buildPod.Namespace)
 		if err != nil {
-			log.Error(err, "Unable to scan deployments")
+			logger.Error(err, "Unable to scan deployments")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		// now we generate the pod spec we'd like to deploy
-		podspec, err := generateScanPodSpec(imageList, r.ScanImageName, buildPod.Name, buildPod.Namespace, projectName, envName)
+		podspec, err := generateScanPodSpec(imageList, r.ScanImageName, buildPod.Name, buildPod.Namespace, projectName, envName, dockerhost)
 		if err != nil {
-			log.Error(err, "Unable to generate podspec")
+			logger.Error(err, "Unable to generate the podspec for the image scanner.")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		// Remove any existing pods
 		err = r.killExistingScans(ctx, scannerNameFromBuildname(buildPod.Name), buildPod.Namespace)
 		if err != nil {
-			log.Error(err, "Unable to remove existing scan pods")
+			logger.Error(err, "Unable to remove existing scan pods")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		// Deploy scan pod
 		err = r.Client.Create(ctx, podspec)
 		if err != nil {
-			log.Error(err, "Couldn't create pod")
+			logger.Error(err, "Couldn't create pod")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		labels := buildPod.GetLabels()
 		// Let's label the pod as having been seen
-		labels[insightsScannedLabel] = "true"
+		labels[insightsScannedLabel] = "true" // Right now this assumes a fire and forget style setup
+		// TODO: in the future we may want to have a slightly more complex approach to monitoring insights scans
+
 		buildPod.SetLabels(labels)
 		err = r.Update(ctx, &buildPod)
 		if err != nil {
-			log.Error(err, fmt.Sprintf("Unable to update pod labels: %v", req.NamespacedName.String()))
+			logger.Error(err, fmt.Sprintf("Unable to update pod labels: %v", req.NamespacedName.String()))
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	}
@@ -162,7 +157,8 @@ func (r *BuildReconciler) scanDeployments(ctx context.Context, req ctrl.Request,
 	return imageList, nil
 }
 
-func generateScanPodSpec(images []string, scanImageName, buildName, namespace, projectName, environmentName string) (*corev1.Pod, error) {
+// generateScanPodSpec generates the pod spec for the scanner that will be injected into the namespace
+func generateScanPodSpec(images []string, scanImageName, buildName, namespace, projectName, environmentName, dockerhost string) (*corev1.Pod, error) {
 
 	if len(images) == 0 {
 		return nil, errors.New("No images to scan")
@@ -201,6 +197,10 @@ func generateScanPodSpec(images []string, scanImageName, buildName, namespace, p
 							Name:  "ENVIRONMENT",
 							Value: environmentName,
 						},
+						{
+							Name:  "DOCKER_HOST",
+							Value: dockerhost,
+						},
 					},
 					ImagePullPolicy: "Always",
 					VolumeMounts: []corev1.VolumeMount{
@@ -233,9 +233,7 @@ func generateScanPodSpec(images []string, scanImageName, buildName, namespace, p
 
 func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName string, namespace string) error {
 	// Find pods in namespace with the image scan pod labels
-
 	podlist := &corev1.PodList{}
-	//ls := client.MatchingLabels{"insights.lagoon.sh/imagescanner": "scanning"}
 	ls := client.MatchingLabels(imageScanPodLabels())
 	ns := client.InNamespace(namespace)
 	err := r.Client.List(ctx, podlist, ns, ls)
@@ -248,13 +246,11 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 
 		log.Log.Info("Looking at following image by name: " + i.Name)
 		//if i.Name != newScannerName { // Then we have a rogue pod
-		log.Log.Info("Deleting image")
 		err = r.Client.Delete(ctx, &i)
 		if err != nil {
-
 			return err
 		}
-		log.Log.Info(fmt.Sprintf("Going to delete pod: %v", i.Name))
+		log.Log.Info(fmt.Sprintf("Successfully deleted old insights-scanner pod: %v", i.Name))
 		//}
 	}
 	return nil
@@ -263,7 +259,6 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 func imageScanPodLabels() map[string]string {
 	return map[string]string{
 		"insights.lagoon.sh/imagescanner": "scanning",
-		"lagoon.sh/buildName":             "notabuild", //TODO: this only exists to give me appropriate permissions - change roles etc.
 	}
 }
 
@@ -271,6 +266,8 @@ func scannerNameFromBuildname(buildName string) string {
 	return fmt.Sprintf("insights-scanner-%v", buildName)
 }
 
+// successfulBuildPodsPredicate returns a list of predicate functions to determine
+// if the build we're looking at has been successfully completed
 func successfulBuildPodsPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool { return false },
@@ -288,13 +285,11 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 			labels := event.ObjectNew.GetLabels()
 			_, err := getValueFromMap(labels, "lagoon.sh/buildName")
 			if err != nil {
-				log.Log.Info(fmt.Sprintf("Not a build pod, skipping : %v", event.ObjectNew.GetName()))
 				return false //this isn't a build pod
 			}
 
 			_, err = getValueFromMap(labels, "insights.lagoon.sh/imagescanner")
 			if err == nil {
-				log.Log.Info(fmt.Sprintf("Found a scanner pod, skipping : %v", event.ObjectNew.GetName()))
 				return false //this isn't a build pod
 			}
 
@@ -304,7 +299,6 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 				return false
 			}
 			return true
-
 		},
 		GenericFunc: func(genericEvent event.GenericEvent) bool {
 			return false
