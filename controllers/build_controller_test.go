@@ -60,6 +60,10 @@ func Test_generateScanPodSpec(t *testing.T) {
 									Name:  "ENVIRONMENT",
 									Value: "environmentName",
 								},
+								{
+									Name:  "DOCKER_HOST",
+									Value: dockerhost,
+								},
 							},
 							ImagePullPolicy: "Always",
 							VolumeMounts: []corev1.VolumeMount{
@@ -91,7 +95,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := generateScanPodSpec(tt.args.images, "scanImageName", tt.args.buildName, tt.args.namespace, "projectName", "environmentName")
+			got, err := generateScanPodSpec(tt.args.images, "scanImageName", tt.args.buildName, tt.args.namespace, "projectName", "environmentName", dockerhost)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateScanPodSpec() error = %v, wantErr %v", err, tt.wantErr)
 				return
