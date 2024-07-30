@@ -44,8 +44,6 @@ type ConfigMapReconciler struct {
 }
 
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=configmaps/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=core,resources=configmaps/finalizers,verbs=update
 
 // Gathers insights related Config Maps and ships them to configured endpoints.
 func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
