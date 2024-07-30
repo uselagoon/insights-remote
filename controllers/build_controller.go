@@ -278,11 +278,6 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 			//TODO: need the logic here to find the appropriate types
 			// that is, successful and build pods
 
-			// TODO: remove when happy with process - and we want it to run across everything
-			if event.ObjectNew.GetNamespace() != "test6-drupal-example-simple-test1copy" {
-				return false
-			}
-
 			labels := event.ObjectNew.GetLabels()
 			_, err := getValueFromMap(labels, "lagoon.sh/buildName")
 			if err != nil {
