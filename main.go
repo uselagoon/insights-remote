@@ -167,7 +167,7 @@ func main() {
 	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", true,
 		"Enables scanning of build images on successful builds (env var: ENABLE_BUILD_SCANNING).")
 
-	flag.StringVar(&buildScannerImage, "build-scanner-image", "imagecache.amazeeio.cloud/bomoko/insights-scan:latest",
+	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
 		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
 
 	opts := zap.Options{
