@@ -7,6 +7,14 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - configmaps
@@ -21,21 +29,23 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - configmaps/status
+  - deployments
   verbs:
   - get
-  - patch
-  - update
+  - list
+  - watch
 - apiGroups:
   - ""
   resources:
   - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
   verbs:
   - create
   - delete
@@ -47,14 +57,12 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - namespaces/finalizers
+  - secrets
   verbs:
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - namespaces/status
-  verbs:
+  - create
+  - delete
   - get
+  - list
   - patch
   - update
+  - watch
