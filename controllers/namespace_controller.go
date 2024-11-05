@@ -63,6 +63,11 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// if the namespace state is terminating, we do nothing
+	if ns.Status.Phase == corev1.NamespaceTerminating {
+		return ctrl.Result{}, nil
+	}
+
 	secretList := &corev1.SecretList{}
 
 	labelSelectorParameters, err := labels.NewRequirement(insightsTokenLabel, selection.Exists, []string{})
@@ -203,6 +208,7 @@ func activeNamespacePredicate(tokenTargetLabel string) predicate.Predicate {
 		},
 		UpdateFunc: func(updateEvent event.UpdateEvent) bool {
 			labels := updateEvent.ObjectNew.GetLabels()
+
 			_, err := getValueFromMap(labels, "lagoon.sh/environmentId")
 			if err != nil {
 				return false
