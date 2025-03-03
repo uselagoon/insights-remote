@@ -6,6 +6,7 @@ toolchain go1.24.0
 
 require (
 	github.com/cheshir/go-mq v1.2.0
+	github.com/cheshir/go-mq/v2 v2.0.1
 	github.com/gin-gonic/gin v1.10.0
 	github.com/golang-jwt/jwt/v4 v4.5.1
 	github.com/onsi/ginkgo v1.16.5
