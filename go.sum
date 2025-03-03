@@ -16,6 +16,7 @@ github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UF
 github.com/cespare/xxhash/v2 v2.3.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
 github.com/cheshir/go-mq v1.2.0 h1:Vj83B1SLsfceWbs+uRXhVf6NAdeiyrIJhFiU7qkF56w=
 github.com/cheshir/go-mq v1.2.0/go.mod h1:lAwW/xhfO27t6WSVHFtLdgYioymwJvQxMSH19z00/BY=
+github.com/cheshir/go-mq/v2 v2.0.1/go.mod h1:LyvQzlgkvc7FftktTNSm7fGK6r8vjaWQWoHXSDiQtRU=
 github.com/cloudwego/base64x v0.1.4 h1:jwCgWpFanWmN8xoIUHa2rtzmkd5J2plF/dnLS6Xd/0Y=
 github.com/cloudwego/base64x v0.1.4/go.mod h1:0zlkT4Wn5C6NdauXdJRhSKRlJvmclQ1hhJgA0rcu/8w=
 github.com/cloudwego/iasm v0.2.0 h1:1KNIy1I1H9hNNFEEH3DVnI4UujN+1zjpuk6gwHLTssg=
