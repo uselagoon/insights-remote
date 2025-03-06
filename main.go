@@ -20,15 +20,17 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"lagoon.sh/insights-remote/internal/service"
-	"lagoon.sh/insights-remote/internal/tokens"
 	"log"
 	"os"
 	"strconv"
 	"time"
 
-	"github.com/cheshir/go-mq"
+	"lagoon.sh/insights-remote/internal/service"
+	"lagoon.sh/insights-remote/internal/tokens"
+
+	"github.com/cheshir/go-mq/v2"
 	"github.com/robfig/cron/v3"
+	"github.com/uselagoon/machinery/utils/variables"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/selection"
@@ -58,7 +60,11 @@ var (
 	mqUser                           string
 	mqPass                           string
 	mqHost                           string
-	mqPort                           string
+	mqTLS                            bool
+	mqVerify                         bool
+	mqCACert                         string
+	mqClientCert                     string
+	mqClientKey                      string
 	rabbitReconnectRetryInterval     int
 	burnAfterReading                 bool
 	clearConfigmapCronSched          string
@@ -123,8 +129,16 @@ func main() {
 		"The password for the rabbitmq user (env var: RABBITMQ_PASSWORD).")
 	flag.StringVar(&mqHost, "rabbitmq-hostname", "localhost",
 		"The hostname for the rabbitmq host (env var: RABBITMQ_ADDRESS).")
-	flag.StringVar(&mqPort, "rabbitmq-port", "5672",
-		"The port for the rabbitmq host (env var: RABBITMQ_PORT).")
+	flag.BoolVar(&mqTLS, "rabbitmq-tls", false,
+		"To use amqps instead of amqp.")
+	flag.BoolVar(&mqVerify, "rabbitmq-verify", false,
+		"To verify rabbitmq peer connection.")
+	flag.StringVar(&mqCACert, "rabbitmq-cacert", "",
+		"The path to the ca certificate")
+	flag.StringVar(&mqClientCert, "rabbitmq-clientcert", "",
+		"The path to the client certificate")
+	flag.StringVar(&mqClientKey, "rabbitmq-clientkey", "",
+		"The path to the client key")
 	flag.IntVar(&rabbitReconnectRetryInterval, "rabbitmq-reconnect-retry-interval", 30,
 		"The retry interval for rabbitmq.")
 	flag.BoolVar(&burnAfterReading, "burn-after-reading", false,
@@ -190,27 +204,48 @@ func main() {
 
 	//Grab overrides from environment where appropriate
 
-	mqUser = getEnv("RABBITMQ_USERNAME", mqUser)
-	mqPass = getEnv("RABBITMQ_PASSWORD", mqPass)
-	mqHost = getEnv("RABBITMQ_ADDRESS", mqHost)
-	//rabbitReconnectRetryInterval = getEnv("RABBITMQ_RECONNECT_RETRY_INTERVAL", rabbitReconnectRetryInterval)
-	mqEnable = getEnvBool("RABBITMQ_ENABLED", mqEnable)
-	mqPort = getEnv("RABBITMQ_PORT", mqPort)
+	mqUser = variables.GetEnv("RABBITMQ_USERNAME", mqUser)
+	mqPass = variables.GetEnv("RABBITMQ_PASSWORD", mqPass)
+	mqHost = variables.GetEnv("RABBITMQ_ADDRESS", mqHost)
+	//rabbitReconnectRetryInterval = variables.GetEnv("RABBITMQ_RECONNECT_RETRY_INTERVAL", rabbitReconnectRetryInterval)
+	mqEnable = variables.GetEnvBool("RABBITMQ_ENABLED", mqEnable)
+	mqTLS = variables.GetEnvBool("RABBITMQ_TLS", mqTLS)
+	mqCACert = variables.GetEnv("RABBITMQ_CACERT", mqCACert)
+	mqClientCert = variables.GetEnv("RABBITMQ_CLIENTCERT", mqClientCert)
+	mqClientKey = variables.GetEnv("RABBITMQ_CLIENTKEY", mqClientKey)
+	mqVerify = variables.GetEnvBool("RABBITMQ_VERIFY", mqVerify)
 
-	insightsTokenSecret = getEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
-	clearConfigmapCronSched = getEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
-	enableCMReconciler = getEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
-	enableInsightDeferred = getEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
-	enableNSReconciler = getEnvBool("ENABLE_NAMESPACE_RECONCILER", enableNSReconciler)
-	enableWebservice = getEnvBool("ENABLE_WEBSERVICE", enableWebservice)
-	tokenTargetLabel = getEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
-	webservicePort = getEnv("WEBSERVICE_PORT", webservicePort)
+	insightsTokenSecret = variables.GetEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
+	clearConfigmapCronSched = variables.GetEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
+	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
+	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
+	enableNSReconciler = variables.GetEnvBool("ENABLE_NAMESPACE_RECONCILER", enableNSReconciler)
+	enableWebservice = variables.GetEnvBool("ENABLE_WEBSERVICE", enableWebservice)
+	tokenTargetLabel = variables.GetEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
+	webservicePort = variables.GetEnv("WEBSERVICE_PORT", webservicePort)
 	//Check burn after reading value from environment
-	if getEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
+	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
 		burnAfterReading = true
 	}
 
+	brokerDSN := fmt.Sprintf("amqp://%s:%s@%s", mqUser, mqPass, mqHost)
+	if mqTLS {
+		verify := "verify_none"
+		if mqVerify {
+			verify = "verify_peer"
+		}
+		brokerDSN = fmt.Sprintf("amqps://%s:%s@%s?verify=%s", mqUser, mqPass, mqHost, verify)
+		if mqCACert != "" {
+			brokerDSN = fmt.Sprintf("%s&cacertfile=%s", brokerDSN, mqCACert)
+		}
+		if mqClientCert != "" {
+			brokerDSN = fmt.Sprintf("%s&certfile=%s", brokerDSN, mqClientCert)
+		}
+		if mqClientKey != "" {
+			brokerDSN = fmt.Sprintf("%s&keyfile=%s", brokerDSN, mqClientKey)
+		}
+	}
 	mqConfig = mq.Config{
 		ReconnectDelay: time.Duration(rabbitReconnectRetryInterval) * time.Second,
 		Exchanges: mq.Exchanges{
@@ -249,7 +284,7 @@ func main() {
 				},
 			},
 		},
-		DSN: fmt.Sprintf("amqp://%s:%s@%s", mqUser, mqPass, mqHost),
+		DSN: brokerDSN,
 	}
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
@@ -427,21 +462,4 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 func startInsightsEndpoint(mgr manager.Manager) {
 	router := service.SetupRouter(insightsTokenSecret, mqWriteObject, mqEnable)
 	go router.Run(fmt.Sprintf(":%v", webservicePort))
-}
-
-func getEnv(key, fallback string) string {
-	if value, ok := os.LookupEnv(key); ok {
-		return value
-	}
-	return fallback
-}
-
-// accepts fallback values 1, t, T, TRUE, true, True, 0, f, F, FALSE, false, False
-// anything else is false.
-func getEnvBool(key string, fallback bool) bool {
-	if value, ok := os.LookupEnv(key); ok {
-		rVal, _ := strconv.ParseBool(value)
-		return rVal
-	}
-	return fallback
 }
