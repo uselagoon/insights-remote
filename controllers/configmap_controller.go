@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"k8s.io/apimachinery/pkg/types"
+	"lagoon.sh/insights-remote/internal"
+	"lagoon.sh/insights-remote/internal/postprocess"
 	"strconv"
 	"time"
 
@@ -35,20 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
-const InsightsLabel = "lagoon.sh/insightsType"
-const InsightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
-const InsightsWriteDeferred = "lagoon.sh/insightsWriteDeferred"
-
-type LagoonInsightsMessage struct {
-	Payload       map[string]string `json:"payload"`
-	BinaryPayload map[string][]byte `json:"binaryPayload"`
-	Annotations   map[string]string `json:"annotations"`
-	Labels        map[string]string `json:"labels"`
-	Environment   string            `json:"environment"`
-	Project       string            `json:"project"`
-	Type          string            `json:"type"`
-}
-
 // ConfigMapReconciler reconciles a ConfigMap object
 type ConfigMapReconciler struct {
 	client.Client
@@ -56,6 +44,7 @@ type ConfigMapReconciler struct {
 	MessageQWriter   func(data []byte) error
 	WriteToQueue     bool
 	BurnAfterReading bool
+	PostProcessors   postprocess.PostProcessors
 }
 
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
@@ -73,6 +62,8 @@ type ConfigMapReconciler struct {
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
 func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
+
+	var insightsMessage internal.LagoonInsightsMessage
 
 	var configMap corev1.ConfigMap
 	if err := r.Get(ctx, req.NamespacedName, &configMap); err != nil {
@@ -96,7 +87,8 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// insightsType is a way for us to classify incoming insights data, passing
-	insightsType := "unclassified"
+	insightsType := internal.InsightsTypeUnclassified
+
 	if _, ok := configMap.Labels["insights.lagoon.sh/type"]; ok {
 		insightsType = configMap.Labels["insights.lagoon.sh/type"]
 		log.Info(fmt.Sprintf("Found insights.lagoon.sh/type:%v", insightsType))
@@ -106,23 +98,23 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			switch configMap.Labels["lagoon.sh/insightsType"] {
 			case ("sbom-gz"):
 				log.Info("Inferring insights type of sbom")
-				insightsType = "sbom"
+				insightsType = internal.InsightsTypeSBOM
 			case ("image-gz"):
 				log.Info("Inferring insights type of inspect")
-				insightsType = "inspect"
+				insightsType = internal.InsightsTypeInspect
 			}
 		}
 	}
 
 	// We reject any type that isn't either sbom or inspect to restrict outgoing types
-	if insightsType != "sbom" && insightsType != "inspect" {
+	if insightsType != internal.InsightsTypeSBOM && insightsType != internal.InsightsTypeInspect {
 		//// we mark this configMap as bad, and log an error
 		err := errors.New(fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
 		log.Error(err, err.Error())
 	} else {
 		// Here we attempt to process types using the new name structure
 
-		var sendData = LagoonInsightsMessage{
+		insightsMessage = internal.LagoonInsightsMessage{
 			Payload:       configMap.Data,
 			BinaryPayload: configMap.BinaryData,
 			Annotations:   configMap.Annotations,
@@ -132,7 +124,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			Type:          insightsType,
 		}
 
-		marshalledData, err := json.Marshal(sendData)
+		marshalledData, err := json.Marshal(insightsMessage)
 		if err != nil {
 			log.Error(err, "Unable to marshall config data")
 			return ctrl.Result{}, err
@@ -145,7 +137,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			//In this case what we want to do is defer the processing to a couple minutes from now
 			future := time.Minute * 5
 			futureTime := time.Now().Add(future).Unix()
-			err = cmlib.LabelCM(ctx, r.Client, configMap, InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
+			err = cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
 
 			if err != nil {
 				log.Error(err, "Unable to update configmap")
@@ -157,11 +149,19 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	}
 
-	err := cmlib.AnnotateCM(ctx, r.Client, configMap, InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
+	err := cmlib.AnnotateCM(ctx, r.Client, configMap, internal.InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
 
 	if err != nil {
 		log.Error(err, "Unable to update configmap")
 		return ctrl.Result{}, err
+	}
+
+	// Here we run the post processors
+	for _, processor := range r.PostProcessors.PostProcessors {
+		err := processor.PostProcess(insightsMessage)
+		if err != nil {
+			log.Error(err, "Post processor failed")
+		}
 	}
 
 	return ctrl.Result{}, nil
@@ -172,16 +172,16 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 func insightLabelsOnlyPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
-			if labelExists(InsightsLabel, event.Object) &&
-				!labelExists(InsightsWriteDeferred, event.Object) &&
+			if labelExists(internal.InsightsLabel, event.Object) &&
+				!labelExists(internal.InsightsWriteDeferred, event.Object) &&
 				!insightsProcessedAnnotationExists(event.Object) {
 				return true
 			}
 			return false
 		},
 		UpdateFunc: func(event event.UpdateEvent) bool {
-			if labelExists(InsightsLabel, event.ObjectNew) &&
-				!labelExists(InsightsWriteDeferred, event.ObjectNew) &&
+			if labelExists(internal.InsightsLabel, event.ObjectNew) &&
+				!labelExists(internal.InsightsWriteDeferred, event.ObjectNew) &&
 				!insightsProcessedAnnotationExists(event.ObjectNew) {
 				return true
 			}
@@ -205,7 +205,7 @@ func labelExists(label string, event client.Object) bool {
 func insightsProcessedAnnotationExists(eventObject client.Object) bool {
 	annotations := eventObject.GetAnnotations()
 	annotationExists := false
-	if _, ok := annotations[InsightsUpdatedAnnotationLabel]; ok {
+	if _, ok := annotations[internal.InsightsUpdatedAnnotationLabel]; ok {
 		log.Log.Info(fmt.Sprintf("Insights update annotation exists for '%v' in ns '%v'", eventObject.GetName(), eventObject.GetNamespace()))
 		annotationExists = true
 	}
