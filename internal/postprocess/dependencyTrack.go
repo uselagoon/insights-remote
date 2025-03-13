@@ -190,10 +190,8 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 
 	select {
 	case <-doneChan:
-		fmt.Println("Uploaded!")
 		return nil
 	case err = <-errChan:
-		fmt.Println("Error!")
 		return err
 	}
 }
