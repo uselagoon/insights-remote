@@ -20,6 +20,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	controllers "lagoon.sh/insights-remote/internal/controller"
 	"log"
 	"os"
 	"strconv"
@@ -48,8 +49,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	"lagoon.sh/insights-remote/controllers"
 	//+kubebuilder:scaffold:imports
 )
 

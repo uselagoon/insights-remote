@@ -72,7 +72,7 @@ Essentially these calls correspond to the "deleteProblemsFromSource" and "delete
 
 #### Authorization Token
 
-The Authorization token is a JWT that is generated per project and environment by the insights-remote [namespace controller](controllers/namespace_controller.go)
+The Authorization token is a JWT that is generated per project and environment by the insights-remote [namespace controller](internal/controllers/namespace_controller.go)
 
 The rough idea here is that, given we have an http endpoint people can write to, we would like
 1. To make writing to it as simple as possible - preferably just posting a list of facts or problems as a JSON
