@@ -20,7 +20,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"lagoon.sh/insights-remote/internal"
 	controllers "lagoon.sh/insights-remote/internal/controller"
+	"lagoon.sh/insights-remote/internal/postprocess"
 	"log"
 	"os"
 	"strconv"
@@ -53,33 +55,39 @@ import (
 )
 
 var (
-	scheme                           = runtime.NewScheme()
-	setupLog                         = ctrl.Log.WithName("setup")
-	mqEnable                         bool
-	mqUser                           string
-	mqPass                           string
-	mqHost                           string
-	mqTLS                            bool
-	mqVerify                         bool
-	mqCACert                         string
-	mqClientCert                     string
-	mqClientKey                      string
-	rabbitReconnectRetryInterval     int
-	burnAfterReading                 bool
-	clearConfigmapCronSched          string
-	mqConfig                         mq.Config
-	insightsTokenSecret              string
-	enableNSReconciler               bool
-	enableCMReconciler               bool
-	enableInsightDeferred            bool //TODO: Better names for this
-	enableWebservice                 bool
-	tokenTargetLabel                 string
-	webservicePort                   string
-	generateTokenOnly                bool
-	generateTokenOnlyNamespace       string
-	generateTokenOnlyEnvironmentId   string
-	generateTokenOnlyProjectName     string
-	generateTokenOnlyEnvironmentName string
+	scheme                                   = runtime.NewScheme()
+	setupLog                                 = ctrl.Log.WithName("setup")
+	mqEnable                                 bool
+	mqUser                                   string
+	mqPass                                   string
+	mqHost                                   string
+	mqTLS                                    bool
+	mqVerify                                 bool
+	mqCACert                                 string
+	mqClientCert                             string
+	mqClientKey                              string
+	rabbitReconnectRetryInterval             int
+	burnAfterReading                         bool
+	clearConfigmapCronSched                  string
+	mqConfig                                 mq.Config
+	insightsTokenSecret                      string
+	enableNSReconciler                       bool
+	enableCMReconciler                       bool
+	enableInsightDeferred                    bool //TODO: Better names for this
+	enableWebservice                         bool
+	tokenTargetLabel                         string
+	webservicePort                           string
+	generateTokenOnly                        bool
+	generateTokenOnlyNamespace               string
+	generateTokenOnlyEnvironmentId           string
+	generateTokenOnlyProjectName             string
+	generateTokenOnlyEnvironmentName         string
+	enableDependencyTrackIntegration         bool
+	dependencyTrackApiEndpoint               string
+	dependencyTrackApiKey                    string
+	dependencyTrackProjectNameTemplate       string
+	dependencyTrackParentProjectNameTemplate string
+	dependencyTrackVersionTemplate           string
 )
 
 func init() {
@@ -170,11 +178,19 @@ func main() {
 
 	flag.StringVar(&generateTokenOnlyNamespace, "generate-token-only-namespace", "", "Namespace for which to generate a token.")
 
-	flag.StringVar(&generateTokenOnlyEnvironmentId, "generate-token-only-environment-id", "", "Environment ID for which to generate a token.")
+	flag.StringVar(&generateTokenOnlyEnvironmentId, "generate-token-only-environment-id", "", "EnvironmentName ID for which to generate a token.")
 
-	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "Project name for which to generate a token.")
+	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "ProjectName name for which to generate a token.")
 
-	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "Environment name for which to generate a token.")
+	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "EnvironmentName name for which to generate a token.")
+
+	// If these two are set, we will post to Dependency Track post-process
+	flag.BoolVar(&enableDependencyTrackIntegration, "enable-dependency-track-integration", false, "Enable Dependency Track integration.")
+	flag.StringVar(&dependencyTrackApiEndpoint, "dependency-track-api-endpoint", "", "The endpoint for the Dependency Track API.")
+	flag.StringVar(&dependencyTrackApiKey, "dependency-track-api-key", "", "The API key for the Dependency Track API.")
+	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}", "The template for the project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackParentProjectNameTemplate, "dependency-track-parent-project-name-template", "{{ .ProjectName }}", "The template for the parent project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackVersionTemplate, "dependency-track-version-template", "unset", "The template for the version in Dependency Track.")
 
 	opts := zap.Options{
 		Development: true,
@@ -226,6 +242,14 @@ func main() {
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
 		burnAfterReading = true
+	}
+	// Check if Dependency Track integration is enabled
+	enableDependencyTrackIntegration = variables.GetEnvBool("ENABLE_DEPENDENCY_TRACK_INTEGRATION", enableDependencyTrackIntegration)
+	dependencyTrackApiEndpoint = variables.GetEnv("DEPENDENCY_TRACK_API_ENDPOINT", dependencyTrackApiEndpoint)
+	dependencyTrackApiKey = variables.GetEnv("DEPENDENCY_TRACK_API_KEY", dependencyTrackApiKey)
+	// Check if Dependency Track integration is enabled - fail if missing required configuration
+	if enableDependencyTrackIntegration && (dependencyTrackApiEndpoint == "" || dependencyTrackApiKey == "") {
+		log.Fatal("Dependency Track integration enabled but missing required configuration")
 	}
 
 	brokerDSN := fmt.Sprintf("amqp://%s:%s@%s", mqUser, mqPass, mqHost)
@@ -301,12 +325,30 @@ func main() {
 	}
 
 	if enableCMReconciler {
+
+		// First, let's set up post processors
+		postProcessor := postprocess.PostProcessors{}
+
+		if enableDependencyTrackIntegration && dependencyTrackApiEndpoint != "" && dependencyTrackApiKey != "" {
+			postProcessor.PostProcessors = append(postProcessor.PostProcessors, &postprocess.DependencyTrackPostProcess{
+				ApiEndpoint: dependencyTrackApiEndpoint,
+				ApiKey:      dependencyTrackApiKey,
+				Templates: postprocess.DependencyTrackTemplates{
+					ParentProjectNameTemplate: dependencyTrackParentProjectNameTemplate,
+					ProjectNameTemplate:       dependencyTrackProjectNameTemplate,
+					VersionTemplate:           dependencyTrackVersionTemplate,
+				},
+			})
+		}
+
+		// Set up the controller
 		if err = (&controllers.ConfigMapReconciler{
 			Client:           mgr.GetClient(),
 			Scheme:           mgr.GetScheme(),
 			MessageQWriter:   mqWriteObject,
 			BurnAfterReading: burnAfterReading,
 			WriteToQueue:     mqEnable,
+			PostProcessors:   postProcessor,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 			os.Exit(1)
@@ -371,7 +413,7 @@ func startBurnAfterReadingCron(mgr manager.Manager) {
 	c.AddFunc(clearConfigmapCronSched, func() {
 		client := mgr.GetClient()
 		configMapList := &corev1.ConfigMapList{}
-		insightsProcessedRequirement, err := labels.NewRequirement(controllers.InsightsLabel, selection.Exists, []string{})
+		insightsProcessedRequirement, err := labels.NewRequirement(internal.InsightsLabel, selection.Exists, []string{})
 		if err != nil {
 			fmt.Printf("bad requirement: %v\n\n", err)
 			return
@@ -391,7 +433,7 @@ func startBurnAfterReadingCron(mgr manager.Manager) {
 
 		for _, x := range configMapList.Items {
 			//check the annotations
-			if _, okay := x.Annotations[controllers.InsightsUpdatedAnnotationLabel]; okay {
+			if _, okay := x.Annotations[internal.InsightsUpdatedAnnotationLabel]; okay {
 				//grab the build this is linked to
 				buildName := ""
 				if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
@@ -414,7 +456,7 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 
 		client := mgr.GetClient()
 		configMapList := &corev1.ConfigMapList{}
-		insightsDeferredRequirement, err := labels.NewRequirement(controllers.InsightsWriteDeferred, selection.Exists, []string{})
+		insightsDeferredRequirement, err := labels.NewRequirement(internal.InsightsWriteDeferred, selection.Exists, []string{})
 		if err != nil {
 			fmt.Printf("bad requirement: %v\n\n", err)
 			return
@@ -434,7 +476,7 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 
 		for _, x := range configMapList.Items {
 			//check the labels
-			if writeDeferredVal, okay := x.Labels[controllers.InsightsWriteDeferred]; okay {
+			if writeDeferredVal, okay := x.Labels[internal.InsightsWriteDeferred]; okay {
 				writeDeferredValTS, _ := strconv.ParseInt(writeDeferredVal, 10, 32)
 				parsed := time.Unix(writeDeferredValTS, 0)
 				if err != nil {
@@ -443,7 +485,7 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 				}
 
 				if time.Now().After(parsed) {
-					delete(x.Labels, controllers.InsightsWriteDeferred)
+					delete(x.Labels, internal.InsightsWriteDeferred)
 					err = client.Update(context.Background(), &x)
 					if err != nil {
 						log.Printf("Unable to update configmap '%v' for '%v' in ns '%v': %v\n\n", x.Name, x.Name, x.Namespace, err)

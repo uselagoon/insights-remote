@@ -45,3 +45,22 @@ type Problems struct {
 	Problems        []Problem `json:"problems"`
 	Type            string    `json:"type"`
 }
+
+type LagoonInsightsMessage struct {
+	Payload       map[string]string `json:"payload"`
+	BinaryPayload map[string][]byte `json:"binaryPayload"`
+	Annotations   map[string]string `json:"annotations"`
+	Labels        map[string]string `json:"labels"`
+	Environment   string            `json:"environment"`
+	Project       string            `json:"project"`
+	Type          string            `json:"type"`
+}
+
+// Insights Type consts
+const InsightsTypeSBOM = "sbom"
+const InsightsTypeInspect = "inspect"
+const InsightsTypeUnclassified = "unclassified"
+
+const InsightsLabel = "lagoon.sh/insightsType"
+const InsightsUpdatedAnnotationLabel = "lagoon.sh/insightsProcessed"
+const InsightsWriteDeferred = "lagoon.sh/insightsWriteDeferred"
