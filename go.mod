@@ -12,7 +12,7 @@ require (
 	github.com/onsi/gomega v1.36.1
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.10.0
-	github.com/uselagoon/machinery v0.0.32
+	github.com/uselagoon/machinery v0.0.33
 	k8s.io/api v0.32.2
 	k8s.io/apimachinery v0.32.2
 	k8s.io/client-go v0.32.2
