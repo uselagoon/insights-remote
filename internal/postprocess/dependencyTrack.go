@@ -154,7 +154,7 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 	}
 
 	const tickerHeartbeatDuration = 1 * time.Second
-	const tickerTimeout = 30 * time.Second
+	const tickerTimeout = 300 * time.Second
 
 	var (
 		doneChan = make(chan struct{})
