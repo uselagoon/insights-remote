@@ -138,7 +138,20 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 
 	// let's now unzip the binary payload
 	var unzippedPayload bytes.Buffer
-	err = unzipByteStream(bytes.NewReader(message.BinaryPayload["output.zip"]), &unzippedPayload)
+
+	// we need to pull the binary payload out of the message
+	// get the first item from map
+	var messageBinaryPayload []byte
+	for _, v := range message.BinaryPayload {
+		messageBinaryPayload = v
+		break
+	}
+
+	err = unzipByteStream(bytes.NewReader(messageBinaryPayload), &unzippedPayload)
+
+	if err != nil {
+		return err
+	}
 
 	request := dtrack.BOMUploadRequest{
 		ProjectName:    writeInfo.ProjectName,
