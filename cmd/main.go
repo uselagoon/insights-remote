@@ -188,7 +188,7 @@ func main() {
 	flag.BoolVar(&enableDependencyTrackIntegration, "enable-dependency-track-integration", false, "Enable Dependency Track integration.")
 	flag.StringVar(&dependencyTrackApiEndpoint, "dependency-track-api-endpoint", "", "The endpoint for the Dependency Track API.")
 	flag.StringVar(&dependencyTrackApiKey, "dependency-track-api-key", "", "The API key for the Dependency Track API.")
-	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}", "The template for the project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}", "The template for the project name in Dependency Track.")
 	flag.StringVar(&dependencyTrackParentProjectNameTemplate, "dependency-track-parent-project-name-template", "{{ .ProjectName }}", "The template for the parent project name in Dependency Track.")
 	flag.StringVar(&dependencyTrackVersionTemplate, "dependency-track-version-template", "unset", "The template for the version in Dependency Track.")
 
