@@ -15,7 +15,7 @@ func TestDependencyTrackPostProcess_processTemplate(t *testing.T) {
 		ProjectNameTemplate       string
 	}
 	type args struct {
-		info dependencyTrackWriteInfo
+		info struct{ ProjectName string }
 	}
 	tests := []struct {
 		name    string
@@ -30,8 +30,8 @@ func TestDependencyTrackPostProcess_processTemplate(t *testing.T) {
 				ParentProjectNameTemplate: "ParentProjectName",
 			},
 			args: args{
-				info: dependencyTrackWriteInfo{
-					ParentProjectName: "ParentProjectName",
+				info: struct{ ProjectName string }{
+					ProjectName: "ParentProjectName",
 				},
 			},
 			want:    "ParentProjectName",
@@ -40,14 +40,14 @@ func TestDependencyTrackPostProcess_processTemplate(t *testing.T) {
 		{
 			name: "template test",
 			fields: fields{
-				ParentProjectNameTemplate: "{{.ParentProjectName}}",
+				ParentProjectNameTemplate: "{{.ProjectName}}",
 			},
 			args: args{
-				info: dependencyTrackWriteInfo{
-					ParentProjectName: "ThisIsTheParentProjectName",
+				info: struct{ ProjectName string }{
+					ProjectName: "ParentProjectName",
 				},
 			},
-			want:    "ThisIsTheParentProjectName",
+			want:    "ParentProjectName",
 			wantErr: false,
 		},
 	}
@@ -58,12 +58,11 @@ func TestDependencyTrackPostProcess_processTemplate(t *testing.T) {
 				ApiEndpoint: tt.fields.ApiEndpoint,
 				ApiKey:      tt.fields.ApiKey,
 				Templates: DependencyTrackTemplates{
-					RootProjectNameTemplate:   tt.fields.RootProjectName,
-					ParentProjectNameTemplate: tt.fields.ParentProjectNameTemplate,
-					ProjectNameTemplate:       tt.fields.ProjectNameTemplate,
+					ParentProjectNameTemplates: []string{tt.fields.ParentProjectNameTemplate},
+					ProjectNameTemplate:        tt.fields.ProjectNameTemplate,
 				},
 			}
-			got, err := processTemplate(d.Templates.ParentProjectNameTemplate, tt.args.info)
+			got, err := processTemplate(d.Templates.ParentProjectNameTemplates[0], tt.args.info)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetParentProjectName() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -99,16 +98,14 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					RootProjectNameTemplate:   "",
-					ParentProjectNameTemplate: "",
-					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}",
-					VersionTemplate:           "1.0.0",
+					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}",
+					VersionTemplate:     "1.0.0",
 				},
 			},
 			want: dependencyTrackWriteInfo{
-				ParentProjectName: "",
-				ProjectName:       "testProject-clilabel",
-				ProjectVersion:    "1.0.0",
+				//ParentProjectName: "",
+				ProjectName:    "testProject-clilabel",
+				ProjectVersion: "1.0.0",
 			},
 		},
 		{
@@ -124,16 +121,16 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					RootProjectNameTemplate:   "",
-					ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
-					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}",
-					VersionTemplate:           "1.0.0",
+					ParentProjectNameTemplates: []string{"testproject-{{ .ProjectName }}"},
+					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}",
+					VersionTemplate:            "1.0.0",
 				},
 			},
 			want: dependencyTrackWriteInfo{
-				ParentProjectName: "testproject-testProject",
-				ProjectName:       "testProject-clilabel",
-				ProjectVersion:    "1.0.0",
+				//ParentProjectName: "testproject-testProject",
+				ParentProjectNames: []string{"testproject-testProject"},
+				ProjectName:        "testProject-clilabel",
+				ProjectVersion:     "1.0.0",
 			},
 		},
 		{
@@ -149,17 +146,18 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					RootProjectNameTemplate:   "SomeRootProject",
-					ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
-					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}",
-					VersionTemplate:           "1.0.0",
+					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
+					//RootProjectNameTemplate:   "SomeRootProject",
+					//ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
+					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}",
+					VersionTemplate:     "1.0.0",
 				},
 			},
-
 			want: dependencyTrackWriteInfo{
-				ParentProjectName: "testproject-testProject",
-				ProjectName:       "testProject-clilabel",
-				ProjectVersion:    "1.0.0",
+				//ParentProjectName: "testproject-testProject",
+				ParentProjectNames: []string{"someRootProject", "testproject-testProject"},
+				ProjectName:        "testProject-clilabel",
+				ProjectVersion:     "1.0.0",
 			},
 		},
 		{
@@ -175,17 +173,18 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					RootProjectNameTemplate:   "SomeRootProject",
-					ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
-					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}",
-					VersionTemplate:           "1.0.0",
+					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
+					//RootProjectNameTemplate:   "SomeRootProject",
+					//ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
+					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}",
+					VersionTemplate:     "1.0.0",
 				},
 			},
 
 			want: dependencyTrackWriteInfo{
-				ParentProjectName: "testproject-testprojectlabel",
-				ProjectName:       "testprojectlabel-clilabel",
-				ProjectVersion:    "1.0.0",
+				ParentProjectNames: []string{"someRootProject", "testproject-testprojectlabel"},
+				ProjectName:        "testprojectlabel-clilabel",
+				ProjectVersion:     "1.0.0",
 			},
 		},
 		{
@@ -202,17 +201,16 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					RootProjectNameTemplate:   "SomeRootProject",
-					ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
-					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
-					VersionTemplate:           "1.0.0",
+					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
+					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
+					VersionTemplate:            "1.0.0",
 				},
 			},
 
 			want: dependencyTrackWriteInfo{
-				ParentProjectName: "testproject-testprojectlabel",
-				ProjectName:       "testprojectlabel-clilabel-testEnvironmentType",
-				ProjectVersion:    "1.0.0",
+				ParentProjectNames: []string{"someRootProject", "testproject-testprojectlabel"},
+				ProjectName:        "testprojectlabel-clilabel-testEnvironmentType",
+				ProjectVersion:     "1.0.0",
 			},
 		},
 		{
@@ -228,17 +226,18 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					RootProjectNameTemplate:   "SomeRootProject",
-					ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
-					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
-					VersionTemplate:           "1.0.0",
+					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
+					//RootProjectNameTemplate:   "SomeRootProject",
+					//ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
+					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
+					VersionTemplate:     "1.0.0",
 				},
 			},
 
 			want: dependencyTrackWriteInfo{
-				ParentProjectName: "testproject-testprojectlabel",
-				ProjectName:       "testprojectlabel-clilabel-unknown",
-				ProjectVersion:    "1.0.0",
+				ParentProjectNames: []string{"someRootProject", "testproject-testprojectlabel"},
+				ProjectName:        "testprojectlabel-clilabel-unknown",
+				ProjectVersion:     "1.0.0",
 			},
 		},
 	}

@@ -14,10 +14,11 @@ import (
 )
 
 type DependencyTrackTemplates struct {
-	RootProjectNameTemplate   string // If a root project is set, all subsequent projects will be children of this project
-	ParentProjectNameTemplate string
-	ProjectNameTemplate       string
-	VersionTemplate           string
+	//RootProjectNameTemplate   string // If a root project is set, all subsequent projects will be children of this project
+	//ParentProjectNameTemplate string
+	ParentProjectNameTemplates []string
+	ProjectNameTemplate        string
+	VersionTemplate            string
 }
 
 type DependencyTrackPostProcess struct {
@@ -28,9 +29,9 @@ type DependencyTrackPostProcess struct {
 
 type dependencyTrackWriteInfo struct {
 	//RootName          string
-	ParentProjectName string
-	ProjectName       string
-	ProjectVersion    string
+	ParentProjectNames []string
+	ProjectName        string
+	ProjectVersion     string
 }
 
 // This is a helper function to process a template string given a dependencyTrackWriteInfo struct
@@ -94,14 +95,12 @@ func getWriteInfo(message internal.LagoonInsightsMessage, templates DependencyTr
 		templateValues.EnvironmentType = "unknown"
 	}
 
-	// okay - now we can populate the writeinfo struct with templating
-
-	if len(templates.ParentProjectNameTemplate) > 0 {
-		n, err := processTemplate(templates.ParentProjectNameTemplate, templateValues)
+	for _, parentProjectNameTemplate := range templates.ParentProjectNameTemplates {
+		n, err := processTemplate(parentProjectNameTemplate, templateValues)
 		if err != nil {
 			return writeinfo, err
 		}
-		writeinfo.ParentProjectName = n
+		writeinfo.ParentProjectNames = append(writeinfo.ParentProjectNames, n)
 	}
 
 	n, err := processTemplate(templates.ProjectNameTemplate, templateValues)
@@ -137,10 +136,19 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 		return err
 	}
 
-	// let's get or create the parent project
-	project, err := d.getOrCreateProject(client, writeInfo.ParentProjectName)
-	if err != nil {
-		return err
+	// Here we iterate over the parent projects, creating them if/when we need
+	// only the last one gets passed to the upload
+	var project *dtrack.Project
+	for _, projectName := range writeInfo.ParentProjectNames {
+		var parentRef dtrack.ParentRef
+		if project != nil {
+			parentRef = dtrack.ParentRef{UUID: project.UUID}
+		}
+		projectObj, err := d.getOrCreateProject(client, projectName, &parentRef)
+		if err != nil {
+			return err
+		}
+		project = &projectObj
 	}
 
 	// let's now unzip the binary payload
@@ -217,7 +225,7 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 }
 
 // This will get or create a project in DependencyTrack
-func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, projectName string) (dtrack.Project, error) {
+func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, projectName string, parentProject *dtrack.ParentRef) (dtrack.Project, error) {
 	// let's ensure we have a parent project
 	var project dtrack.Project
 	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, true)
@@ -228,8 +236,9 @@ func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, p
 	// let's create the parent project if it doesn't exist
 	if len(projects) == 0 {
 		project, err = client.Project.Create(context.TODO(), dtrack.Project{
-			Name:   projectName,
-			Active: true,
+			Name:      projectName,
+			Active:    true,
+			ParentRef: parentProject,
 		})
 
 		if err != nil {

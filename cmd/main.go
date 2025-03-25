@@ -85,8 +85,9 @@ var (
 	enableDependencyTrackIntegration         bool
 	dependencyTrackApiEndpoint               string
 	dependencyTrackApiKey                    string
-	dependencyTrackProjectNameTemplate       string
+	dependencyTrackRootProjectNameTemplate   string
 	dependencyTrackParentProjectNameTemplate string
+	dependencyTrackProjectNameTemplate       string
 	dependencyTrackVersionTemplate           string
 )
 
@@ -188,8 +189,9 @@ func main() {
 	flag.BoolVar(&enableDependencyTrackIntegration, "enable-dependency-track-integration", false, "Enable Dependency Track integration.")
 	flag.StringVar(&dependencyTrackApiEndpoint, "dependency-track-api-endpoint", "", "The endpoint for the Dependency Track API.")
 	flag.StringVar(&dependencyTrackApiKey, "dependency-track-api-key", "", "The API key for the Dependency Track API.")
-	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}", "The template for the project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackRootProjectNameTemplate, "dependency-track-root-project-name-template", "{{ .ProjectName }}", "The template for the root project name in Dependency Track.")
 	flag.StringVar(&dependencyTrackParentProjectNameTemplate, "dependency-track-parent-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}", "The template for the parent project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}", "The template for the project name in Dependency Track.")
 	flag.StringVar(&dependencyTrackVersionTemplate, "dependency-track-version-template", "unset", "The template for the version in Dependency Track.")
 
 	opts := zap.Options{
@@ -331,13 +333,22 @@ func main() {
 
 		if enableDependencyTrackIntegration && dependencyTrackApiEndpoint != "" && dependencyTrackApiKey != "" {
 			log.Printf("Enabling Dependency Track integration")
+			dtTemplates := []string{}
+			// let's work out our tempaltes
+			if dependencyTrackProjectNameTemplate != "" {
+				if dependencyTrackRootProjectNameTemplate != "" {
+					dtTemplates = append(dtTemplates, dependencyTrackRootProjectNameTemplate)
+				}
+				dtTemplates = append(dtTemplates, dependencyTrackProjectNameTemplate)
+			}
+
 			postProcessor.PostProcessors = append(postProcessor.PostProcessors, &postprocess.DependencyTrackPostProcess{
 				ApiEndpoint: dependencyTrackApiEndpoint,
 				ApiKey:      dependencyTrackApiKey,
 				Templates: postprocess.DependencyTrackTemplates{
-					ParentProjectNameTemplate: dependencyTrackParentProjectNameTemplate,
-					ProjectNameTemplate:       dependencyTrackProjectNameTemplate,
-					VersionTemplate:           dependencyTrackVersionTemplate,
+					ParentProjectNameTemplates: dtTemplates,
+					ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
+					VersionTemplate:            dependencyTrackVersionTemplate,
 				},
 			})
 		}
