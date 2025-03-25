@@ -188,6 +188,59 @@ func Test_getWriteInfo(t *testing.T) {
 				ProjectVersion:    "1.0.0",
 			},
 		},
+		{
+			name: "Testing EnvironmentType",
+			args: args{
+				message: internal.LagoonInsightsMessage{
+					Labels: map[string]string{
+						"lagoon.sh/project":         "testprojectlabel",
+						"lagoon.sh/environment":     "testenvironmentlabel",
+						"lagoon.sh/service":         "clilabel",
+						"lagoon.sh/environmentType": "testEnvironmentType",
+					},
+					Project:     "",
+					Environment: "testEnvironment",
+				},
+				templates: DependencyTrackTemplates{
+					RootProjectNameTemplate:   "SomeRootProject",
+					ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
+					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
+					VersionTemplate:           "1.0.0",
+				},
+			},
+
+			want: dependencyTrackWriteInfo{
+				ParentProjectName: "testproject-testprojectlabel",
+				ProjectName:       "testprojectlabel-clilabel-testEnvironmentType",
+				ProjectVersion:    "1.0.0",
+			},
+		},
+		{
+			name: "Testing EnvironmentType Empty",
+			args: args{
+				message: internal.LagoonInsightsMessage{
+					Labels: map[string]string{
+						"lagoon.sh/project":     "testprojectlabel",
+						"lagoon.sh/environment": "testenvironmentlabel",
+						"lagoon.sh/service":     "clilabel",
+					},
+					Project:     "",
+					Environment: "testEnvironment",
+				},
+				templates: DependencyTrackTemplates{
+					RootProjectNameTemplate:   "SomeRootProject",
+					ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
+					ProjectNameTemplate:       "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
+					VersionTemplate:           "1.0.0",
+				},
+			},
+
+			want: dependencyTrackWriteInfo{
+				ParentProjectName: "testproject-testprojectlabel",
+				ProjectName:       "testprojectlabel-clilabel-unknown",
+				ProjectVersion:    "1.0.0",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

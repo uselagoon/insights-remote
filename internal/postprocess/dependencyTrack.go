@@ -56,6 +56,7 @@ func getWriteInfo(message internal.LagoonInsightsMessage, templates DependencyTr
 	// These are going to be what's available for templating
 	templateValues := struct {
 		ServiceName     string
+		EnvironmentType string
 		ProjectName     string
 		EnvironmentName string
 		Version         string
@@ -85,6 +86,12 @@ func getWriteInfo(message internal.LagoonInsightsMessage, templates DependencyTr
 		templateValues.ServiceName = val
 	} else {
 		return writeinfo, fmt.Errorf("no service annotation found - unable to populate info for dependency track")
+	}
+
+	if val, ok := message.Labels["lagoon.sh/environmentType"]; ok {
+		templateValues.EnvironmentType = val
+	} else {
+		templateValues.EnvironmentType = "unknown"
 	}
 
 	// okay - now we can populate the writeinfo struct with templating
