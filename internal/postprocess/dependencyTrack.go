@@ -236,9 +236,10 @@ func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, p
 	// let's create the parent project if it doesn't exist
 	if len(projects) == 0 {
 		project, err = client.Project.Create(context.TODO(), dtrack.Project{
-			Name:      projectName,
-			Active:    true,
-			ParentRef: parentProject,
+			Name:          projectName,
+			Active:        true,
+			ParentRef:     parentProject,
+			LastBOMImport: 0,
 		})
 
 		if err != nil {

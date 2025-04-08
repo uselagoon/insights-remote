@@ -18,6 +18,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.20.4
 )
 
+replace github.com/DependencyTrack/client-go => github.com/bomoko/client-go v0.0.0-20250408230851-d77d5a01059a
+
 require (
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/NeowayLabs/wabbit v0.0.0-20210927194032-73ad61d1620e // indirect
