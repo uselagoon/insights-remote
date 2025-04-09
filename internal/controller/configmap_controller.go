@@ -97,10 +97,10 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	if _, ok := labels["lagoon.sh/project"]; ok {
 		projectName = labels["lagoon.sh/project"]
 	}
-	if _, ok := labels["lagoon.sh/service"]; ok {
-		serviceName = labels["lagoon.sh/service"]
-	}
 
+	if _, ok := configMap.Labels["lagoon.sh/service"]; ok {
+		serviceName = configMap.Labels["lagoon.sh/service"]
+	}
 	// insightsType is a way for us to classify incoming insights data, passing
 	insightsType := "unclassified"
 	if _, ok := configMap.Labels["insights.lagoon.sh/type"]; ok {
@@ -144,6 +144,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "Unable to marshall config data")
 			return ctrl.Result{}, err
 		}
+
 		err = r.MessageQWriter(marshalledData)
 
 		if err != nil {
