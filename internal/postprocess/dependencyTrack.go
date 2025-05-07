@@ -140,11 +140,11 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 	// only the last one gets passed to the upload
 	var project *dtrack.Project
 	for _, projectName := range writeInfo.ParentProjectNames {
-		var parentRef dtrack.ParentRef
+		var parentRef *dtrack.ParentRef
 		if project != nil {
-			parentRef = dtrack.ParentRef{UUID: project.UUID}
+			parentRef = &dtrack.ParentRef{UUID: project.UUID}
 		}
-		projectObj, err := d.getOrCreateProject(client, projectName, &parentRef)
+		projectObj, err := d.getOrCreateProject(client, projectName, parentRef)
 		if err != nil {
 			return err
 		}
@@ -229,8 +229,7 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, projectName string, parentProject *dtrack.ParentRef) (dtrack.Project, error) {
 	// let's ensure we have a parent project
 	var project dtrack.Project
-	onlyRoot := parentProject == nil
-	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, onlyRoot)
+	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, false)
 	if err != nil {
 		return dtrack.Project{}, err
 	}
@@ -249,10 +248,15 @@ func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, p
 		}
 	} else {
 		// if there's a parent project, we check which project has it
-		if onlyRoot {
+		if parentProject != nil {
 			for _, project = range projects {
-				if project.ParentRef != nil && project.ParentRef.UUID == parentProject.UUID {
-					return project, nil
+				// we need to get the full project object to check the parent
+				fullProject, err := client.Project.Get(context.TODO(), project.UUID)
+				if err != nil {
+					return dtrack.Project{}, err
+				}
+				if fullProject.ParentRef != nil && fullProject.ParentRef.UUID == parentProject.UUID {
+					return fullProject, nil
 				}
 			}
 			// if we get here, something is wrong
