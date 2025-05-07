@@ -24,15 +24,15 @@ func TestGenerateTokenForNamespace(t *testing.T) {
 				details: NamespaceDetails{
 					Namespace:       "Namespace",
 					EnvironmentId:   "1",
-					ProjectName:     "Project",
-					EnvironmentName: "Environment",
+					ProjectName:     "ProjectName",
+					EnvironmentName: "EnvironmentName",
 				},
 			},
 			want: NamespaceDetails{
 				Namespace:       "Namespace",
 				EnvironmentId:   "1",
-				ProjectName:     "Project",
-				EnvironmentName: "Environment",
+				ProjectName:     "ProjectName",
+				EnvironmentName: "EnvironmentName",
 			},
 		},
 		{
@@ -42,8 +42,8 @@ func TestGenerateTokenForNamespace(t *testing.T) {
 				details: NamespaceDetails{
 					Namespace:       "Namespace",
 					EnvironmentId:   "1",
-					ProjectName:     "Project",
-					EnvironmentName: "Environment",
+					ProjectName:     "ProjectName",
+					EnvironmentName: "EnvironmentName",
 				},
 			},
 			want: NamespaceDetails{
