@@ -52,6 +52,7 @@ type LagoonInsightsMessage struct {
 	Annotations   map[string]string `json:"annotations"`
 	Labels        map[string]string `json:"labels"`
 	Environment   string            `json:"environment"`
+	Service       string            `json:"service"`
 	Project       string            `json:"project"`
 	Type          string            `json:"type"`
 }

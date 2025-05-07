@@ -79,13 +79,18 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	var environmentName string
 	var projectName string
+	var serviceName string
 	labels := nameSpace.Labels
 	if _, ok := labels["lagoon.sh/environment"]; ok {
 		environmentName = labels["lagoon.sh/environment"]
-	} else if _, ok := labels["lagoon.sh/project"]; ok {
+	}
+	if _, ok := labels["lagoon.sh/project"]; ok {
 		projectName = labels["lagoon.sh/project"]
 	}
 
+	if _, ok := configMap.Labels["lagoon.sh/service"]; ok {
+		serviceName = configMap.Labels["lagoon.sh/service"]
+	}
 	// insightsType is a way for us to classify incoming insights data, passing
 	insightsType := internal.InsightsTypeUnclassified
 
@@ -96,10 +101,10 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		// insightsType can be determined by the incoming data
 		if _, ok := configMap.Labels["lagoon.sh/insightsType"]; ok {
 			switch configMap.Labels["lagoon.sh/insightsType"] {
-			case ("sbom-gz"):
+			case "sbom-gz":
 				log.Info("Inferring insights type of sbom")
 				insightsType = internal.InsightsTypeSBOM
-			case ("image-gz"):
+			case "image-gz":
 				log.Info("Inferring insights type of inspect")
 				insightsType = internal.InsightsTypeInspect
 			}
@@ -122,6 +127,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			Environment:   environmentName,
 			Project:       projectName,
 			Type:          insightsType,
+			Service:       serviceName,
 		}
 
 		marshalledData, err := json.Marshal(insightsMessage)
@@ -129,6 +135,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "Unable to marshall config data")
 			return ctrl.Result{}, err
 		}
+
 		err = r.MessageQWriter(marshalledData)
 
 		if err != nil {
