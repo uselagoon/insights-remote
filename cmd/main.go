@@ -334,12 +334,12 @@ func main() {
 		if enableDependencyTrackIntegration && dependencyTrackApiEndpoint != "" && dependencyTrackApiKey != "" {
 			log.Printf("Enabling Dependency Track integration")
 			dtTemplates := []string{}
-			// let's work out our tempaltes
-			if dependencyTrackProjectNameTemplate != "" {
+			// let's work out our templates
+			if dependencyTrackParentProjectNameTemplate != "" {
 				if dependencyTrackRootProjectNameTemplate != "" {
 					dtTemplates = append(dtTemplates, dependencyTrackRootProjectNameTemplate)
 				}
-				dtTemplates = append(dtTemplates, dependencyTrackProjectNameTemplate)
+				dtTemplates = append(dtTemplates, dependencyTrackParentProjectNameTemplate)
 			}
 
 			postProcessor.PostProcessors = append(postProcessor.PostProcessors, &postprocess.DependencyTrackPostProcess{

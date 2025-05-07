@@ -193,6 +193,7 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 
 	go func() {
 		defer func() {
+			ticker.Stop()
 			close(doneChan)
 			close(errChan)
 		}()
@@ -228,12 +229,13 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, projectName string, parentProject *dtrack.ParentRef) (dtrack.Project, error) {
 	// let's ensure we have a parent project
 	var project dtrack.Project
-	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, true)
+	onlyRoot := parentProject == nil
+	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, onlyRoot)
 	if err != nil {
 		return dtrack.Project{}, err
 	}
 
-	// let's create the parent project if it doesn't exist
+	// let's create the project if it doesn't exist
 	if len(projects) == 0 {
 		project, err = client.Project.Create(context.TODO(), dtrack.Project{
 			Name:          projectName,
@@ -246,6 +248,17 @@ func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, p
 			return dtrack.Project{}, err
 		}
 	} else {
+		// if there's a parent project, we check which project has it
+		if onlyRoot {
+			for _, project = range projects {
+				if project.ParentRef != nil && project.ParentRef.UUID == parentProject.UUID {
+					return project, nil
+				}
+			}
+			// if we get here, something is wrong
+			return dtrack.Project{}, fmt.Errorf("parent project %s not found for %s", parentProject.UUID, projectName)
+		}
+		// else we just take the first project
 		project = projects[0]
 	}
 	return project, err

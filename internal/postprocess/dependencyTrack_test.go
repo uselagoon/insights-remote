@@ -146,15 +146,12 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
-					//RootProjectNameTemplate:   "SomeRootProject",
-					//ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
-					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}",
-					VersionTemplate:     "1.0.0",
+					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
+					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}",
+					VersionTemplate:            "1.0.0",
 				},
 			},
 			want: dependencyTrackWriteInfo{
-				//ParentProjectName: "testproject-testProject",
 				ParentProjectNames: []string{"someRootProject", "testproject-testProject"},
 				ProjectName:        "testProject-clilabel",
 				ProjectVersion:     "1.0.0",
@@ -173,7 +170,7 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
+					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
 					//RootProjectNameTemplate:   "SomeRootProject",
 					//ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
 					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}",
@@ -201,7 +198,7 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
+					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
 					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
 					VersionTemplate:            "1.0.0",
 				},
@@ -226,11 +223,9 @@ func Test_getWriteInfo(t *testing.T) {
 					Environment: "testEnvironment",
 				},
 				templates: DependencyTrackTemplates{
-					ParentProjectNameTemplates: []string{"SomeRootProject", "testproject-{{ .ProjectName }}"},
-					//RootProjectNameTemplate:   "SomeRootProject",
-					//ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
-					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
-					VersionTemplate:     "1.0.0",
+					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
+					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
+					VersionTemplate:            "1.0.0",
 				},
 			},
 
