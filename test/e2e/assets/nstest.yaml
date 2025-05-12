@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: test-lagoon-ns
+  labels:
+    lagoon.sh/environmentId: "1"
+    lagoon.sh/project: "namespace-recon-test"
+    lagoon.sh/environment: "test1"

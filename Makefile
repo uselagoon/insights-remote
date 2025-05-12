@@ -222,3 +222,122 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
+
+
+.PHONY: local-dev/kind
+local-dev/kind:
+ifeq ($(KIND_VERSION), $(shell kind version 2>/dev/null | sed -nE 's/kind (v[0-9.]+).*/\1/p'))
+	$(info linking local kind version $(KIND_VERSION))
+	ln -sf $(shell command -v kind) ./local-dev/kind
+else
+ifneq ($(KIND_VERSION), $(shell ./local-dev/kind version 2>/dev/null | sed -nE 's/kind (v[0-9.]+).*/\1/p'))
+	$(info downloading kind version $(KIND_VERSION) for $(ARCH))
+	mkdir -p local-dev
+	rm local-dev/kind || true
+	curl -sSLo local-dev/kind https://kind.sigs.k8s.io/dl/$(KIND_VERSION)/kind-$(ARCH)-amd64
+	chmod a+x local-dev/kind
+endif
+endif
+
+.PHONY: local-dev/kustomize
+local-dev/kustomize:
+ifeq ($(KUSTOMIZE_VERSION), $(shell kustomize version 2>/dev/null | sed -nE 's/(v[0-9.]+).*/\1/p'))
+	$(info linking local kustomize version $(KUSTOMIZE_VERSION))
+	ln -sf $(shell command -v kind) ./local-dev/kind
+else
+ifneq ($(KUSTOMIZE_VERSION), $(shell ./local-dev/kustomize version 2>/dev/null | sed -nE 's/(v[0-9.]+).*/\1/p'))
+	$(info downloading kustomize version $(KUSTOMIZE_VERSION) for $(ARCH))
+	rm local-dev/kustomize || true
+	curl -sSL https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F$(KUSTOMIZE_VERSION)/kustomize_$(KUSTOMIZE_VERSION)_$(ARCH)_amd64.tar.gz | tar -xzC local-dev
+	chmod a+x local-dev/kustomize
+endif
+endif
+
+
+# here follows the e2e testing setup
+
+KIND_CLUSTER ?= insights-remote
+KIND_NETWORK ?= insights-remote
+
+KIND_VERSION = v0.25.0
+KUBECTL_VERSION := v1.31.0
+HELM_VERSION := v3.16.1
+GOJQ_VERSION = v0.12.16
+KUSTOMIZE_VERSION := v5.4.3
+
+KUBECTL = $(realpath ./local-dev/kubectl)
+KIND = $(realpath ./local-dev/kind)
+KUSTOMIZE = $(realpath ./local-dev/kustomize)
+HELM = $(realpath ./local-dev/helm)
+JQ = $(realpath ./local-dev/jq)
+
+ARCH := $(shell uname | tr '[:upper:]' '[:lower:]')
+
+
+.PHONY: local-dev/kubectl
+local-dev/kubectl:
+ifeq ($(KUBECTL_VERSION), $(shell kubectl version --client 2>/dev/null | grep Client | sed -E 's/Client Version: (v[0-9.]+).*/\1/'))
+	$(info linking local kubectl version $(KUBECTL_VERSION))
+	ln -sf $(shell command -v kubectl) ./local-dev/kubectl
+else
+ifneq ($(KUBECTL_VERSION), $(shell ./local-dev/kubectl version --client 2>/dev/null | grep Client | sed -E 's/Client Version: (v[0-9.]+).*/\1/'))
+	$(info downloading kubectl version $(KUBECTL_VERSION) for $(ARCH))
+	rm local-dev/kubectl || true
+	curl -sSLo local-dev/kubectl https://storage.googleapis.com/kubernetes-release/release/$(KUBECTL_VERSION)/bin/$(ARCH)/amd64/kubectl
+	chmod a+x local-dev/kubectl
+endif
+endif
+
+.PHONY: local-dev/helm
+local-dev/helm:
+ifeq ($(HELM_VERSION), $(shell helm version --short --client 2>/dev/null | sed -nE 's/(v[0-9.]+).*/\1/p'))
+	$(info linking local helm version $(HELM_VERSION))
+	ln -sf $(shell command -v helm) ./local-dev/helm
+else
+ifneq ($(HELM_VERSION), $(shell ./local-dev/helm version --short --client 2>/dev/null | sed -nE 's/(v[0-9.]+).*/\1/p'))
+	$(info downloading helm version $(HELM_VERSION) for $(ARCH))
+	rm local-dev/helm || true
+	curl -sSL https://get.helm.sh/helm-$(HELM_VERSION)-$(ARCH)-amd64.tar.gz | tar -xzC local-dev --strip-components=1 $(ARCH)-amd64/helm
+	chmod a+x local-dev/helm
+endif
+endif
+
+.PHONY: local-dev/jq
+local-dev/jq:
+ifeq ($(GOJQ_VERSION), $(shell gojq -v 2>/dev/null | sed -nE 's/gojq ([0-9.]+).*/v\1/p'))
+	$(info linking local gojq version $(GOJQ_VERSION))
+	ln -sf $(shell command -v gojq) ./local-dev/jq
+else
+ifneq ($(GOJQ_VERSION), $(shell ./local-dev/jq -v 2>/dev/null | sed -nE 's/gojq ([0-9.]+).*/v\1/p'))
+	$(info downloading gojq version $(GOJQ_VERSION) for $(ARCH))
+	rm local-dev/jq || true
+ifeq ($(ARCH), darwin)
+	TMPDIR=$$(mktemp -d) \
+		&& curl -sSL https://github.com/itchyny/gojq/releases/download/$(GOJQ_VERSION)/gojq_$(GOJQ_VERSION)_$(ARCH)_arm64.zip -o $$TMPDIR/gojq.zip \
+		&& (cd $$TMPDIR && unzip gojq.zip) && cp $$TMPDIR/gojq_$(GOJQ_VERSION)_$(ARCH)_arm64/gojq ./local-dev/jq && rm -rf $$TMPDIR
+else
+	curl -sSL https://github.com/itchyny/gojq/releases/download/$(GOJQ_VERSION)/gojq_$(GOJQ_VERSION)_$(ARCH)_amd64.tar.gz | tar -xzC local-dev --strip-components=1 gojq_$(GOJQ_VERSION)_$(ARCH)_amd64/gojq
+	mv ./local-dev/{go,}jq
+endif
+	chmod a+x local-dev/jq
+endif
+endif
+
+.PHONY: local-dev/tools
+local-dev/tools: local-dev/kind local-dev/kustomize local-dev/kubectl local-dev/helm local-dev/jq
+
+## Kind control functionality
+
+## Briefly - this is a kind cluster with a custom network
+## This is run before the ginko e2e tests are run
+## Ginko e2e tests will take care of building the image and loading it into the kind cluster
+
+.PHONY: kind/create
+kind/create:
+	docker network inspect $(KIND_CLUSTER) >/dev/null || docker network create $(KIND_CLUSTER) \
+ 		&& kind create cluster --wait=60s --name=$(KIND_CLUSTER)
+
+# delete the kind cluster and remove the network
+.PHONY: kind/clean
+kind/clean:
+	kind delete cluster --name=$(KIND_CLUSTER) && docker network rm $(KIND_CLUSTER)

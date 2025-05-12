@@ -1,0 +1,64 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: controller
+  namespace: test-lagoon-remote
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: controller-manager
+  labels:
+    app.kubernetes.io/name: controller
+    app.kubernetes.io/component: manager
+rules:
+  - verbs:
+      - '*'
+    apiGroups:
+      - ''
+    resources:
+      - configmaps
+      - secrets
+  - verbs:
+      - get
+      - watch
+      - list
+    apiGroups:
+      - ''
+    resources:
+      - namespaces
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: controller-manager-binding
+subjects:
+  - kind: ServiceAccount
+    name: controller
+    namespace: test-lagoon-remote
+roleRef:
+  kind: ClusterRole
+  name: controller-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller
+  namespace: test-lagoon-remote
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: controller
+  template:
+    metadata:
+      labels:
+        app: controller
+    spec:
+      serviceAccountName: controller
+      containers:
+        - name: controller
+          image: controller:latest
+          imagePullPolicy: IfNotPresent

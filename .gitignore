@@ -23,3 +23,7 @@ testbin/*
 *.swp
 *.swo
 *~
+
+# ignore local-dev tools
+local-dev
+!local-dev/.gitkeep
