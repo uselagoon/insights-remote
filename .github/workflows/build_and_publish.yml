@@ -10,8 +10,18 @@ on:
     branches:
       - 'main'
 
+permissions: {}
+
 jobs:
   docker:
+    permissions:
+      # checkout
+      contents: read
+      # image push
+      packages: write
+      # required by attest-build-provenance
+      id-token: write
+      attestations: write
     runs-on: ubuntu-latest
     steps:
       -
@@ -50,9 +60,18 @@ jobs:
       -
         name: Build and push
         uses: docker/build-push-action@v6
+        id: build-and-push
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      -
+        name: Attest ghcr image
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        if: github.ref_type == 'tag'
+        with:
+          subject-digest: ${{steps.build-and-push.outputs.digest}}
+          subject-name: ghcr.io/${{ github.repository }}
+          push-to-registry: true
