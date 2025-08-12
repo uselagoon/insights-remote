@@ -2,7 +2,7 @@ module lagoon.sh/insights-remote
 
 go 1.23.0
 
-toolchain go1.24.2
+toolchain go1.25.0
 
 require (
 	github.com/DependencyTrack/client-go v0.0.0-20250408230851-d77d5a01059a
