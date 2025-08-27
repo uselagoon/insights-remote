@@ -20,11 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"time"
+
 	"k8s.io/apimachinery/pkg/types"
 	"lagoon.sh/insights-remote/internal"
 	"lagoon.sh/insights-remote/internal/postprocess"
-	"strconv"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -124,6 +125,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			BinaryPayload: configMap.BinaryData,
 			Annotations:   configMap.Annotations,
 			Labels:        configMap.Labels,
+			Namespace:     configMap.Namespace,
 			Environment:   environmentName,
 			Project:       projectName,
 			Type:          insightsType,
@@ -142,9 +144,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Error(err, "Unable to write to message broker")
 
 			//In this case what we want to do is defer the processing to a couple minutes from now
-			future := time.Minute * 5
-			futureTime := time.Now().Add(future).Unix()
-			err = cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, strconv.FormatInt(futureTime, 10))
+			err = cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, minutesFromNow(5))
 
 			if err != nil {
 				log.Error(err, "Unable to update configmap")
@@ -156,19 +156,33 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	}
 
+	// Here we run the post processors
+	retryPostprocessing := false
+	for _, processor := range r.PostProcessors.PostProcessors {
+		err := processor.PostProcess(insightsMessage)
+		if err != nil {
+			log.Error(err, "Post processor failed")
+			retryPostprocessing = true
+		}
+	}
+
+	if retryPostprocessing {
+		//In this case what we want to do is defer the processing to a couple minutes from now
+		err := cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, minutesFromNow(5))
+
+		if err != nil {
+			log.Error(err, "Unable to update configmap")
+			return ctrl.Result{}, err
+		}
+
+		return ctrl.Result{}, err
+	}
+
 	err := cmlib.AnnotateCM(ctx, r.Client, configMap, internal.InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
 
 	if err != nil {
 		log.Error(err, "Unable to update configmap")
 		return ctrl.Result{}, err
-	}
-
-	// Here we run the post processors
-	for _, processor := range r.PostProcessors.PostProcessors {
-		err := processor.PostProcess(insightsMessage)
-		if err != nil {
-			log.Error(err, "Post processor failed")
-		}
 	}
 
 	return ctrl.Result{}, nil
@@ -225,4 +239,9 @@ func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&corev1.ConfigMap{}).
 		WithEventFilter(insightLabelsOnlyPredicate()).
 		Complete(r)
+}
+
+func minutesFromNow(mins int) string {
+	xMins := time.Minute * time.Duration(mins)
+	return strconv.FormatInt(time.Now().Add(xMins).Unix(), 10)
 }
