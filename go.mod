@@ -8,7 +8,7 @@ require (
 	github.com/DependencyTrack/client-go v0.0.0-20250408230851-d77d5a01059a
 	github.com/cheshir/go-mq/v2 v2.0.1
 	github.com/gin-gonic/gin v1.10.0
-	github.com/golang-jwt/jwt/v4 v4.5.1
+	github.com/golang-jwt/jwt/v4 v4.5.2
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.10.0
 	github.com/uselagoon/machinery v0.0.32
