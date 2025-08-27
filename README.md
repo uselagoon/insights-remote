@@ -102,12 +102,22 @@ These two routes simply unmarshal the data, use the authorization header to set 
 
 Insights remote allows integration into [Dependency Track](https://docs.dependencytrack.org/) - specifically, the uploading of SBOMS.
 
-Once a build is complete and the SBOM has been sent to Insights Core, a post-processing step is triggered and pushes the SBOM to Dependency Track.
+Once a build is complete and the SBOM has been sent to Insights Core, a post-processing step is triggered and pushes the SBOM to Dependency Track. There are two available post-processors: 1) A default integration which sends all insights to a central instance and 2) A custom integration configured via Lagoon API env vars.
 
 Dependency track integration is enabled by starting Insights Remote with the appropriate flags or the following environment variables in the insights-remote deployment:
 * ENABLE_DEPENDENCY_TRACK_INTEGRATION=true
+
+### Default Post-Processor
+
+The default integration is enabled by starting Insights Remote with the appropriate flags or the following environment variables in the insights-remote deployment:
 * DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
 * DEPENDENCY_TRACK_API_KEY=your-api-key
+
+### Custom Post-Processor
+
+The custom integration is enabled by adding the following environment variables in the Lagoon API:
+* LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
+* LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_KEY=your-api-key
 
 # Templates
 
@@ -127,4 +137,3 @@ The following variables are available for use in the templates:
 - .EnvironmentType
 
 These are currently set by overriding the arguments in the insights-remote deployment.
-

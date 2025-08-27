@@ -352,6 +352,15 @@ func main() {
 					},
 				})
 			}
+
+			postProcessor.PostProcessors = append(postProcessor.PostProcessors, &deptrack.CustomPostProcess{
+				Client: mgr.GetClient(),
+				Templates: deptrack.Templates{
+					ParentProjectNameTemplates: dtTemplates,
+					ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
+					VersionTemplate:            dependencyTrackVersionTemplate,
+				},
+			})
 		}
 
 		// Set up the controller
