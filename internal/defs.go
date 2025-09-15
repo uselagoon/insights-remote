@@ -51,6 +51,7 @@ type LagoonInsightsMessage struct {
 	BinaryPayload map[string][]byte `json:"binaryPayload"`
 	Annotations   map[string]string `json:"annotations"`
 	Labels        map[string]string `json:"labels"`
+	Namespace     string            `json:"namespace"`
 	Environment   string            `json:"environment"`
 	Service       string            `json:"service"`
 	Project       string            `json:"project"`

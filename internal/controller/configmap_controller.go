@@ -125,6 +125,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			BinaryPayload: configMap.BinaryData,
 			Annotations:   configMap.Annotations,
 			Labels:        configMap.Labels,
+			Namespace:     configMap.Namespace,
 			Environment:   environmentName,
 			Project:       projectName,
 			Type:          insightsType,
