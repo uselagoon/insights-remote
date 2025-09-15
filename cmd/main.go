@@ -20,13 +20,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"lagoon.sh/insights-remote/internal"
-	controllers "lagoon.sh/insights-remote/internal/controller"
-	"lagoon.sh/insights-remote/internal/postprocess"
 	"log"
 	"os"
 	"strconv"
 	"time"
+
+	"lagoon.sh/insights-remote/internal"
+	controllers "lagoon.sh/insights-remote/internal/controller"
+	"lagoon.sh/insights-remote/internal/postprocess"
+	deptrack "lagoon.sh/insights-remote/internal/postprocess/dependency_track"
 
 	"lagoon.sh/insights-remote/internal/service"
 	"lagoon.sh/insights-remote/internal/tokens"
@@ -249,10 +251,6 @@ func main() {
 	enableDependencyTrackIntegration = variables.GetEnvBool("ENABLE_DEPENDENCY_TRACK_INTEGRATION", enableDependencyTrackIntegration)
 	dependencyTrackApiEndpoint = variables.GetEnv("DEPENDENCY_TRACK_API_ENDPOINT", dependencyTrackApiEndpoint)
 	dependencyTrackApiKey = variables.GetEnv("DEPENDENCY_TRACK_API_KEY", dependencyTrackApiKey)
-	// Check if Dependency Track integration is enabled - fail if missing required configuration
-	if enableDependencyTrackIntegration && (dependencyTrackApiEndpoint == "" || dependencyTrackApiKey == "") {
-		log.Fatal("Dependency Track integration enabled but missing required configuration")
-	}
 
 	brokerDSN := fmt.Sprintf("amqp://%s:%s@%s", mqUser, mqPass, mqHost)
 	if mqTLS {
@@ -331,7 +329,7 @@ func main() {
 		// First, let's set up post processors
 		postProcessor := postprocess.PostProcessors{}
 
-		if enableDependencyTrackIntegration && dependencyTrackApiEndpoint != "" && dependencyTrackApiKey != "" {
+		if enableDependencyTrackIntegration {
 			log.Printf("Enabling Dependency Track integration")
 			dtTemplates := []string{}
 			// let's work out our templates
@@ -342,15 +340,18 @@ func main() {
 				dtTemplates = append(dtTemplates, dependencyTrackParentProjectNameTemplate)
 			}
 
-			postProcessor.PostProcessors = append(postProcessor.PostProcessors, &postprocess.DependencyTrackPostProcess{
-				ApiEndpoint: dependencyTrackApiEndpoint,
-				ApiKey:      dependencyTrackApiKey,
-				Templates: postprocess.DependencyTrackTemplates{
-					ParentProjectNameTemplates: dtTemplates,
-					ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
-					VersionTemplate:            dependencyTrackVersionTemplate,
-				},
-			})
+			if dependencyTrackApiEndpoint != "" && dependencyTrackApiKey != "" {
+				log.Printf("Enabling default Dependency Track integration")
+				postProcessor.PostProcessors = append(postProcessor.PostProcessors, &deptrack.DefaultPostProcess{
+					ApiEndpoint: dependencyTrackApiEndpoint,
+					ApiKey:      dependencyTrackApiKey,
+					Templates: deptrack.Templates{
+						ParentProjectNameTemplates: dtTemplates,
+						ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
+						VersionTemplate:            dependencyTrackVersionTemplate,
+					},
+				})
+			}
 		}
 
 		// Set up the controller

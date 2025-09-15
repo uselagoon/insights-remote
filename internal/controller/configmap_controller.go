@@ -20,11 +20,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"time"
+
 	"k8s.io/apimachinery/pkg/types"
 	"lagoon.sh/insights-remote/internal"
 	"lagoon.sh/insights-remote/internal/postprocess"
-	"strconv"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
