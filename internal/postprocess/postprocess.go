@@ -5,6 +5,7 @@ import (
 )
 
 type PostProcessor interface {
+	// PostProcess processes insights for 3rd party tools. Must be idempotent.
 	PostProcess(message internal.LagoonInsightsMessage) error
 }
 
