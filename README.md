@@ -1,5 +1,9 @@
 # Insights Remote
 
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11021/badge)](https://www.bestpractices.dev/projects/11021)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/uselagoon/insights-remote)](https://securityscorecards.dev/viewer/?uri=github.com/uselagoon/insights-remote)
+[![coverage](https://raw.githubusercontent.com/uselagoon/insights-remote/badges/.badges/main/coverage.svg)](https://github.com/uselagoon/insights-remote/actions/workflows/coverage.yaml)
+
 The insights-remote system provides two separate paths to get insights data back to Lagoon Core.
 
 
