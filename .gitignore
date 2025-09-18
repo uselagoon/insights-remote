@@ -23,3 +23,6 @@ testbin/*
 *.swp
 *.swo
 *~
+
+local-dev/
+test-resources/test-suite.metallb-pool.yaml

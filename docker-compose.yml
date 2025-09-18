@@ -1,0 +1,15 @@
+version: '3.2'
+services:
+  local-broker:
+    build:
+      context: test-resources
+      dockerfile: Dockerfile.broker
+      args:
+        UPSTREAM_TAG: v2.25.0
+    volumes:
+      - ./local-dev/certificates/ca.crt:/ca.crt:ro
+      - ./local-dev/certificates/tls.crt:/tls.crt:ro
+      - ./local-dev/certificates/tls.key:/tls.key:ro
+    ports:
+      - '15672:15672'
+      - '5671:5671'
