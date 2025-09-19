@@ -13,7 +13,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.25.1
 	github.com/onsi/gomega v1.38.2
 	github.com/robfig/cron/v3 v3.0.1
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	github.com/uselagoon/machinery v0.0.34
 	k8s.io/api v0.34.0
 	k8s.io/apimachinery v0.34.0
