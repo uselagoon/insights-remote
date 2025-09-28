@@ -72,7 +72,7 @@ Essentially these calls correspond to the "deleteProblemsFromSource" and "delete
 
 #### Authorization Token
 
-The Authorization token is a JWT that is generated per project and environment by the insights-remote [namespace controller](controllers/namespace_controller.go)
+The Authorization token is a JWT that is generated per project and environment by the insights-remote [namespace controller](internal/controllers/namespace_controller.go)
 
 The rough idea here is that, given we have an http endpoint people can write to, we would like
 1. To make writing to it as simple as possible - preferably just posting a list of facts or problems as a JSON
@@ -98,3 +98,42 @@ The two endpoints for facts and problems are simple golang Gin routes that expec
 
 These two routes simply unmarshal the data, use the authorization header to set the project/environment details, and then send along these “direct” problems or facts to the insights-handler in Lagoon core for further processing.
 
+## Dependency Track Integration
+
+Insights remote allows integration into [Dependency Track](https://docs.dependencytrack.org/) - specifically, the uploading of SBOMS.
+
+Once a build is complete and the SBOM has been sent to Insights Core, a post-processing step is triggered and pushes the SBOM to Dependency Track. There are two available post-processors: 1) A default integration which sends all insights to a central instance and 2) A custom integration configured via Lagoon API env vars.
+
+Dependency track integration is enabled by starting Insights Remote with the appropriate flags or the following environment variables in the insights-remote deployment:
+* ENABLE_DEPENDENCY_TRACK_INTEGRATION=true
+
+### Default Post-Processor
+
+The default integration is enabled by starting Insights Remote with the appropriate flags or the following environment variables in the insights-remote deployment:
+* DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
+* DEPENDENCY_TRACK_API_KEY=your-api-key
+
+### Custom Post-Processor
+
+The custom integration is enabled by adding the following environment variables in the Lagoon API:
+* LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
+* LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_KEY=your-api-key
+
+# Templates
+
+The Dependency Track integration allows a fair amount of customization in how the SBOM is uploaded and displayed hierarchically in Dependency Track.
+This is accomplished by setting templates for the Project hierarchy.
+
+By default we have
+- Project - default template=`{{ .ProjectName }}`
+  - Environment - default template=`{{ .ProjectName }}-{{ .EnvironmentName }}`
+    - Service - default template=`{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}`
+
+These templates then set the Project hierarchy in Dependency Track.
+The following variables are available for use in the templates:
+- .ProjectName
+- .EnvironmentName
+- .ServiceName
+- .EnvironmentType
+
+These are currently set by overriding the arguments in the insights-remote deployment.

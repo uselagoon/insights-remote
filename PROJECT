@@ -1,6 +1,6 @@
 domain: lagoon.sh
 layout:
-- go.kubebuilder.io/v3
+- go.kubebuilder.io/v4
 ProjectName: watchconfigmaps
 repo: lagoon.sh/insights-remote
 resources:

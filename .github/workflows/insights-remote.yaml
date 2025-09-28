@@ -1,0 +1,77 @@
+name: Insights Remote Test
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+jobs:
+  test-suite:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        kindest_node_version: [
+          "v1.29.14@sha256:8703bd94ee24e51b778d5556ae310c6c0fa67d761fae6379c8e0bb480e6fea29",
+          "v1.30.10@sha256:4de75d0e82481ea846c0ed1de86328d821c1e6a6a91ac37bf804e5313670e507",
+          "v1.32.2@sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f",
+        ]
+        experimental: [false]
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: "0"
+    - name: Set up testing dependencies
+      run: sudo apt-get update && sudo apt-get -y install build-essential && sudo apt-get clean
+    - name: Setup correct Go version
+      uses: actions/setup-go@v6
+      with:
+        go-version: '1.24'
+
+    - name: Add dependency chart repos
+      run: |
+        helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+        helm repo add metallb https://metallb.github.io/metallb
+
+    - name: Install gojq
+      run: |
+        cd /tmp
+        curl -sSLO https://github.com/itchyny/gojq/releases/download/v0.11.1/gojq_v0.11.1_linux_amd64.tar.gz
+        tar -xf ./gojq_v0.11.1_linux_amd64.tar.gz
+        sudo cp /tmp/gojq_v0.11.1_linux_amd64/gojq /usr/local/bin/jq
+
+    - name: Create kind cluster
+      uses: helm/kind-action@v1.12.0
+      with:
+        version: v0.27.0
+        cluster_name: insights-remote
+        node_image: kindest/node:${{ matrix.kindest_node_version }}
+        kubectl_version: v1.32.2
+        config: test-resources/test-suite.kind-config.yaml
+
+    # - name: Configure registry for containerd
+    #   run: |
+    #     LAGOON_KIND_CIDR_BLOCK=$(docker network inspect kind | jq '.[].Containers[].IPv4Address' | tr -d '"')
+    #     KIND_NODE_IP=$(echo "${LAGOON_KIND_CIDR_BLOCK%???}" | awk -F'.' '{print $1,$2,$3,240}' OFS='.')
+    #     export KIND_NODE_IP
+    #     envsubst < test/e2e/testdata/example-nginx.yaml.tpl > test/e2e/testdata/example-nginx.yaml
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        load: true
+        tags: uselagoon/insights-remote:test-tag
+
+    - name: Run github/test-e2e
+      run: |
+        LAGOON_KIND_CIDR_BLOCK=$(docker network inspect kind | jq '.[].Containers[].IPv4Address' | tr -d '"')
+        KIND_NODE_IP=$(echo "${LAGOON_KIND_CIDR_BLOCK%???}" | awk -F'.' '{print $1,$2,$3,240}' OFS='.')
+        export KIND_NODE_IP
+        make github/test-e2e KIND_NETWORK=kind
