@@ -259,8 +259,8 @@ func main() {
 	enableWebservice = variables.GetEnvBool("ENABLE_WEBSERVICE", enableWebservice)
 	tokenTargetLabel = variables.GetEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
 	webservicePort = variables.GetEnv("WEBSERVICE_PORT", webservicePort)
-	enableBuildScanning = getEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
-	buildScannerImage = getEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
+	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
 
 	//Check burn after reading value from environment
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
