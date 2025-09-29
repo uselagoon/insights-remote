@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+
 	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -30,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"strings"
 )
 
 // BuildReconciler reconciles a Build Pod object
@@ -87,8 +88,14 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
+		buildDockerhost := extractDockerHost(&buildPod, dockerhost)
+		
+		if buildDockerhost == dockerhost {
+			logger.Info("No dockerhost.lagoon.sh/name annotation found on build pod, using default")
+		}
+
 		// now we generate the pod spec we'd like to deploy
-		podspec, err := generateScanPodSpec(imageList, r.ScanImageName, buildPod.Name, buildPod.Namespace, projectName, envName, dockerhost)
+		podspec, err := generateScanPodSpec(imageList, r.ScanImageName, buildPod.Name, buildPod.Namespace, projectName, envName, buildDockerhost)
 		if err != nil {
 			logger.Error(err, "Unable to generate the podspec for the image scanner.")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -131,6 +138,19 @@ func getNamespaceLabel(labels map[string]string, key string) (string, error) {
 		return "", fmt.Errorf("label key '%s' not found", key)
 	}
 	return value, nil
+}
+
+// extractDockerHost extracts the dockerhost from build pod annotations with fallback to default
+func extractDockerHost(buildPod *corev1.Pod, defaultDockerHost string) string {
+	const dockerHostAnnotationKey = "dockerhost.lagoon.sh/name"
+	
+	if buildPod.Annotations != nil {
+		if val, ok := buildPod.Annotations[dockerHostAnnotationKey]; ok {
+			return val
+		}
+	}
+	
+	return defaultDockerHost
 }
 
 // scanDeployments will look at all the deployments in a namespace and
