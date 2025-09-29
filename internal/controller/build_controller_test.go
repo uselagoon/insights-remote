@@ -106,3 +106,100 @@ func Test_generateScanPodSpec(t *testing.T) {
 		})
 	}
 }
+
+func Test_extractDockerHost(t *testing.T) {
+	tests := []struct {
+		name              string
+		buildPod          *corev1.Pod
+		defaultDockerHost string
+		want              string
+	}{
+		{
+			name: "Pod with dockerhost annotation",
+			buildPod: &corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-build-pod",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						"dockerhost.lagoon.sh/name": "custom-docker-host.svc",
+					},
+				},
+			},
+			defaultDockerHost: "docker-host.lagoon.svc",
+			want:              "custom-docker-host.svc",
+		},
+		{
+			name: "Pod without dockerhost annotation",
+			buildPod: &corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-build-pod",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						"other.annotation": "some-value",
+					},
+				},
+			},
+			defaultDockerHost: "docker-host.lagoon.svc",
+			want:              "docker-host.lagoon.svc",
+		},
+		{
+			name: "Pod with nil annotations",
+			buildPod: &corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					Name:        "test-build-pod",
+					Namespace:   "test-ns",
+					Annotations: nil,
+				},
+			},
+			defaultDockerHost: "docker-host.lagoon.svc",
+			want:              "docker-host.lagoon.svc",
+		},
+		{
+			name: "Pod with empty annotations",
+			buildPod: &corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					Name:        "test-build-pod",
+					Namespace:   "test-ns",
+					Annotations: map[string]string{},
+				},
+			},
+			defaultDockerHost: "docker-host.lagoon.svc",
+			want:              "docker-host.lagoon.svc",
+		},
+		{
+			name: "Pod with empty dockerhost annotation value",
+			buildPod: &corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					Name:      "test-build-pod",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						"dockerhost.lagoon.sh/name": "",
+					},
+				},
+			},
+			defaultDockerHost: "docker-host.lagoon.svc",
+			want:              "",
+		},
+		{
+			name: "Custom default dockerhost",
+			buildPod: &corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					Name:        "test-build-pod",
+					Namespace:   "test-ns",
+					Annotations: map[string]string{},
+				},
+			},
+			defaultDockerHost: "my-custom-default.svc.cluster.local",
+			want:              "my-custom-default.svc.cluster.local",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractDockerHost(tt.buildPod, tt.defaultDockerHost)
+			if got != tt.want {
+				t.Errorf("extractDockerHost() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
