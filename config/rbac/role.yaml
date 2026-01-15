@@ -5,10 +5,26 @@ metadata:
   name: manager-role
 rules:
 - apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - ""
   resources:
   - configmaps
   - namespaces
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
   verbs:
   - create
   - delete
@@ -30,6 +46,10 @@ rules:
   - configmaps/status
   - namespaces/status
   verbs:
+  - create
+  - delete
   - get
+  - list
   - patch
   - update
+  - watch

@@ -93,6 +93,8 @@ var (
 	dependencyTrackParentProjectNameTemplate string
 	dependencyTrackProjectNameTemplate       string
 	dependencyTrackVersionTemplate           string
+	enableBuildScanning                      bool
+	buildScannerImage                        string
 )
 
 func init() {
@@ -205,6 +207,12 @@ func main() {
 	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}", "The template for the project name in Dependency Track.")
 	flag.StringVar(&dependencyTrackVersionTemplate, "dependency-track-version-template", "unset", "The template for the version in Dependency Track.")
 
+	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", true,
+		"Enables scanning of build images on successful builds (env var: ENABLE_BUILD_SCANNING).")
+
+	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
+		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
+
 	opts := zap.Options{
 		Development: true,
 	}
@@ -251,6 +259,9 @@ func main() {
 	enableWebservice = variables.GetEnvBool("ENABLE_WEBSERVICE", enableWebservice)
 	tokenTargetLabel = variables.GetEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
 	webservicePort = variables.GetEnv("WEBSERVICE_PORT", webservicePort)
+	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
+	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
 	//Check burn after reading value from environment
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
@@ -433,6 +444,20 @@ func main() {
 		}
 	} else {
 		log.Printf("Namespace reconciler disabled - skipping")
+	}
+
+	if enableBuildScanning {
+		if err = (&controllers.BuildReconciler{
+			Client:            mgr.GetClient(),
+			Scheme:            mgr.GetScheme(),
+			InsightsJWTSecret: insightsTokenSecret,
+			ScanImageName:     buildScannerImage,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("Build reconciler disabled - skipping")
 	}
 
 	if enableWebservice {
