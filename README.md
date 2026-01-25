@@ -119,6 +119,10 @@ The custom integration is enabled by adding the following environment variables 
 * LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
 * LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_KEY=your-api-key
 
+### API Key
+
+An API key for Dependency Track is required to [access the API](https://docs.dependencytrack.org/integrations/rest-api/). The minimum permissions required are `BOM_UPLOAD`, `PORTFOLIO_MANAGEMENT`, and `VIEW_PORTFOLIO`.
+
 # Templates
 
 The Dependency Track integration allows a fair amount of customization in how the SBOM is uploaded and displayed hierarchically in Dependency Track.
