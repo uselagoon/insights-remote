@@ -44,6 +44,7 @@ type BuildReconciler struct {
 
 const insightsBuildPodScannedLabel = "insights.lagoon.sh/scanned"
 const insightsScanPodLabel = "insights.lagoon.sh/scan-status"
+const insightImageScannerPodLabel = "insights.lagoon.sh/imagescanner"
 const dockerhost = "docker-host.lagoon.svc" //TODO in future versions this will be read from the build CRD
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
@@ -89,7 +90,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		buildDockerhost := extractDockerHost(&buildPod, dockerhost)
-		
+
 		if buildDockerhost == dockerhost {
 			logger.Info("No dockerhost.lagoon.sh/name annotation found on build pod, using default")
 		}
@@ -143,13 +144,13 @@ func getNamespaceLabel(labels map[string]string, key string) (string, error) {
 // extractDockerHost extracts the dockerhost from build pod annotations with fallback to default
 func extractDockerHost(buildPod *corev1.Pod, defaultDockerHost string) string {
 	const dockerHostAnnotationKey = "dockerhost.lagoon.sh/name"
-	
+
 	if buildPod.Annotations != nil {
 		if val, ok := buildPod.Annotations[dockerHostAnnotationKey]; ok {
 			return val
 		}
 	}
-	
+
 	return defaultDockerHost
 }
 
@@ -279,7 +280,8 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 
 func imageScanPodLabels() map[string]string {
 	return map[string]string{
-		insightsScanPodLabel: "scanning",
+		insightsScanPodLabel:        "scanning",
+		insightImageScannerPodLabel: "true",
 	}
 }
 

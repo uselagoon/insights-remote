@@ -447,6 +447,7 @@ func main() {
 	}
 
 	if enableBuildScanning {
+		log.Printf("Build reconciler enabled - starting")
 		if err = (&controllers.BuildReconciler{
 			Client:            mgr.GetClient(),
 			Scheme:            mgr.GetScheme(),
