@@ -30,6 +30,7 @@ import (
 	controllers "lagoon.sh/insights-remote/internal/controller"
 	"lagoon.sh/insights-remote/internal/postprocess"
 	deptrack "lagoon.sh/insights-remote/internal/postprocess/dependency_track"
+	insightscore "lagoon.sh/insights-remote/internal/postprocess/insights_core"
 
 	"lagoon.sh/insights-remote/internal/service"
 	"lagoon.sh/insights-remote/internal/tokens"
@@ -349,50 +350,34 @@ func main() {
 
 	if enableCMReconciler {
 
-		// First, let's set up post processors
-		postProcessor := postprocess.PostProcessors{}
-
-		if enableDependencyTrackIntegration {
-			log.Printf("Enabling Dependency Track integration")
-			dtTemplates := []string{}
-			// let's work out our templates
-			if dependencyTrackParentProjectNameTemplate != "" {
-				if dependencyTrackRootProjectNameTemplate != "" {
-					dtTemplates = append(dtTemplates, dependencyTrackRootProjectNameTemplate)
-				}
-				dtTemplates = append(dtTemplates, dependencyTrackParentProjectNameTemplate)
-			}
-
-			if dependencyTrackApiEndpoint != "" && dependencyTrackApiKey != "" {
-				log.Printf("Enabling default Dependency Track integration")
-				postProcessor.PostProcessors = append(postProcessor.PostProcessors, &deptrack.DefaultPostProcess{
-					ApiEndpoint: dependencyTrackApiEndpoint,
-					ApiKey:      dependencyTrackApiKey,
-					Templates: deptrack.Templates{
-						ParentProjectNameTemplates: dtTemplates,
-						ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
-						VersionTemplate:            dependencyTrackVersionTemplate,
-					},
-				})
-			}
-
-			postProcessor.PostProcessors = append(postProcessor.PostProcessors, &deptrack.CustomPostProcess{
-				Client: mgr.GetClient(),
-				Templates: deptrack.Templates{
-					ParentProjectNameTemplates: dtTemplates,
-					ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
-					VersionTemplate:            dependencyTrackVersionTemplate,
-				},
-			})
+		postProcessors := []postprocess.PostProcessor{
+			insightscore.NewPostProcessor(
+				mqEnable,
+				mqWriteObject,
+			),
+			deptrack.NewDefaultPostProcessor(
+				enableDependencyTrackIntegration,
+				dependencyTrackApiEndpoint,
+				dependencyTrackApiKey,
+				dependencyTrackRootProjectNameTemplate,
+				dependencyTrackParentProjectNameTemplate,
+				dependencyTrackProjectNameTemplate,
+				dependencyTrackVersionTemplate,
+			),
+			deptrack.NewCustomPostProcessor(
+				enableDependencyTrackIntegration,
+				mgr.GetClient(),
+				dependencyTrackRootProjectNameTemplate,
+				dependencyTrackParentProjectNameTemplate,
+				dependencyTrackProjectNameTemplate,
+				dependencyTrackVersionTemplate,
+			),
 		}
 
 		if err = (&controllers.ConfigMapReconciler{
-			Client:           mgr.GetClient(),
-			Scheme:           mgr.GetScheme(),
-			MessageQWriter:   mqWriteObject,
-			BurnAfterReading: burnAfterReading,
-			WriteToQueue:     mqEnable,
-			PostProcessors:   postProcessor,
+			Client:         mgr.GetClient(),
+			Scheme:         mgr.GetScheme(),
+			PostProcessors: postProcessors,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 			os.Exit(1)

@@ -29,6 +29,27 @@ type writeInfo struct {
 	ProjectVersion     string
 }
 
+func newTemplate(
+	dependencyTrackRootProjectNameTemplate string,
+	dependencyTrackParentProjectNameTemplate string,
+	dependencyTrackProjectNameTemplate string,
+	dependencyTrackVersionTemplate string,
+) Templates {
+	dtTemplates := []string{}
+	if dependencyTrackParentProjectNameTemplate != "" {
+		if dependencyTrackRootProjectNameTemplate != "" {
+			dtTemplates = append(dtTemplates, dependencyTrackRootProjectNameTemplate)
+		}
+		dtTemplates = append(dtTemplates, dependencyTrackParentProjectNameTemplate)
+	}
+
+	return Templates{
+		ParentProjectNameTemplates: dtTemplates,
+		ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
+		VersionTemplate:            dependencyTrackVersionTemplate,
+	}
+}
+
 // This is a helper function to process a template string given a dependencyTrackWriteInfo struct
 func processTemplate(templateString string, info interface{}) (string, error) {
 	tmpl, err := template.New("templateString").Parse(templateString)
