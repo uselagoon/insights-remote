@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -52,15 +51,7 @@ type ConfigMapReconciler struct {
 //+kubebuilder:rbac:groups=core,resources=configmaps/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=core,resources=configmaps/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ConfigMap object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
+// Gathers insights related Config Maps and ships them to configured endpoints.
 func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -115,7 +106,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// We reject any type that isn't either sbom or inspect to restrict outgoing types
 	if insightsType != internal.InsightsTypeSBOM && insightsType != internal.InsightsTypeInspect {
 		//// we mark this configMap as bad, and log an error
-		err := errors.New(fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
+		err := fmt.Errorf("insightsType '%v' unrecognized - rejecting configMap", insightsType)
 		log.Error(err, err.Error())
 	} else {
 		// Here we attempt to process types using the new name structure
