@@ -28,10 +28,8 @@ func NewPostProcessor(
 }
 
 func (p *PostProcess) PostProcess(message internal.LagoonInsightsMessage) error {
-	if enableInsightsCoreIntegration, exists := message.Annotations["core.insights.lagoon.sh/enabled"]; exists {
-		if enableInsightsCoreIntegration == "false" {
-			return nil
-		}
+	if message.Annotations["core.insights.lagoon.sh/enabled"] != "true" {
+		return nil
 	}
 
 	marshalledData, err := json.Marshal(message)
