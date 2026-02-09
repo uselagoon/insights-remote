@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	v1 "k8s.io/api/apps/v1"
@@ -31,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // BuildReconciler reconciles a Build Pod object
@@ -45,7 +45,8 @@ type BuildReconciler struct {
 const insightsBuildPodScannedLabel = "insights.lagoon.sh/scanned"
 const insightsScanPodLabel = "insights.lagoon.sh/scan-status"
 const insightImageScannerPodLabel = "insights.lagoon.sh/imagescanner"
-const dockerhost = "docker-host.lagoon.svc" //TODO in future versions this will be read from the build CRD
+const dockerHostAnnotationKey = "dockerhost.lagoon.sh/name"
+const defaultDockerhost = "docker-host.lagoon.svc"
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
@@ -66,37 +67,20 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	// we check the build pod itself to see if its status is good
 	if buildPod.Status.Phase == corev1.PodSucceeded {
 
-		// Fetch the Namespace of the Pod
-		namespace := &corev1.Namespace{}
-		err := r.Get(ctx, client.ObjectKey{Name: buildPod.Namespace}, namespace)
-		if err != nil {
-			logger.Error(err, fmt.Sprintf("Unable to load namespace - %v", buildPod.Namespace))
-			return reconcile.Result{}, client.IgnoreNotFound(err)
-		}
-
-		projectName, err := getNamespaceLabel(namespace.Labels, "lagoon.sh/project")
-		if err != nil {
-			return reconcile.Result{}, client.IgnoreNotFound(err)
-		}
-		envName, err := getNamespaceLabel(namespace.Labels, "lagoon.sh/environment")
-		if err != nil {
-			return reconcile.Result{}, client.IgnoreNotFound(err)
-		}
-
 		imageList, err := r.scanDeployments(ctx, req, buildPod.Namespace)
 		if err != nil {
 			logger.Error(err, "Unable to scan deployments")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		buildDockerhost := extractDockerHost(&buildPod, dockerhost)
-
-		if buildDockerhost == dockerhost {
-			logger.Info("No dockerhost.lagoon.sh/name annotation found on build pod, using default")
+		dockerhost, err := extractDockerHost(&buildPod)
+		if err != nil {
+			logger.Info(fmt.Sprintf("Using default dockerhost: %s", err))
+			dockerhost = defaultDockerhost
 		}
 
 		// now we generate the pod spec we'd like to deploy
-		podspec, err := generateScanPodSpec(imageList, r.ScanImageName, buildPod.Name, buildPod.Namespace, projectName, envName, buildDockerhost)
+		podspec, err := generateScanPodSpec(&buildPod, imageList, r.ScanImageName, dockerhost)
 		if err != nil {
 			logger.Error(err, "Unable to generate the podspec for the image scanner.")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -132,26 +116,19 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	return ctrl.Result{}, nil
 }
 
-// GetNamespaceLabel returns the value of a given label key from the namespace labels
-func getNamespaceLabel(labels map[string]string, key string) (string, error) {
-	value, exists := labels[key]
-	if !exists {
-		return "", fmt.Errorf("label key '%s' not found", key)
-	}
-	return value, nil
-}
-
 // extractDockerHost extracts the dockerhost from build pod annotations with fallback to default
-func extractDockerHost(buildPod *corev1.Pod, defaultDockerHost string) string {
-	const dockerHostAnnotationKey = "dockerhost.lagoon.sh/name"
-
+func extractDockerHost(buildPod *corev1.Pod) (string, error) {
 	if buildPod.Annotations != nil {
 		if val, ok := buildPod.Annotations[dockerHostAnnotationKey]; ok {
-			return val
+			if val != "" {
+				return val, nil
+			}
+
+			return "", errors.New(fmt.Sprintf("Empty %s annotation found on build pod", dockerHostAnnotationKey))
 		}
 	}
 
-	return defaultDockerHost
+	return "", errors.New(fmt.Sprintf("No %s annotation found on build pod", dockerHostAnnotationKey))
 }
 
 // scanDeployments will look at all the deployments in a namespace and
@@ -180,50 +157,26 @@ func (r *BuildReconciler) scanDeployments(ctx context.Context, req ctrl.Request,
 }
 
 // generateScanPodSpec generates the pod spec for the scanner that will be injected into the namespace
-func generateScanPodSpec(images []string, scanImageName, buildName, namespace, projectName, environmentName, dockerhost string) (*corev1.Pod, error) {
+func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, dockerhost string) (*corev1.Pod, error) {
 
 	if len(images) == 0 {
 		return nil, errors.New("No images to scan")
 	}
 
-	insightScanImages := strings.Join(images, ",")
-
 	// Define PodSpec
 
 	podSpec := &corev1.Pod{
 		ObjectMeta: v12.ObjectMeta{
-			Namespace: namespace,
-			Name:      scannerNameFromBuildname(buildName),
+			Namespace: buildPod.Namespace,
+			Name:      scannerNameFromBuildname(buildPod.Name),
 			Labels:    imageScanPodLabels(),
 		},
 		Spec: corev1.PodSpec{
 			ServiceAccountName: "lagoon-deployer",
 			Containers: []corev1.Container{
 				{
-					Name:  "scanner",
-					Image: scanImageName,
-					Env: []corev1.EnvVar{
-						{
-							Name:  "INSIGHT_SCAN_IMAGES",
-							Value: insightScanImages,
-						},
-						{
-							Name:  "NAMESPACE",
-							Value: namespace,
-						},
-						{
-							Name:  "PROJECT",
-							Value: projectName,
-						},
-						{
-							Name:  "ENVIRONMENT",
-							Value: environmentName,
-						},
-						{
-							Name:  "DOCKER_HOST",
-							Value: dockerhost,
-						},
-					},
+					Name:            "scanner",
+					Image:           scanImageName,
 					ImagePullPolicy: "Always",
 					VolumeMounts: []corev1.VolumeMount{
 						{
@@ -235,7 +188,7 @@ func generateScanPodSpec(images []string, scanImageName, buildName, namespace, p
 				},
 			},
 			RestartPolicy: "Never",
-			Volumes: []corev1.Volume{ // Here we have to mount the
+			Volumes: []corev1.Volume{
 				{
 					Name: "lagoon-internal-registry-secret",
 					VolumeSource: corev1.VolumeSource{
@@ -250,6 +203,28 @@ func generateScanPodSpec(images []string, scanImageName, buildName, namespace, p
 			},
 		},
 	}
+
+	envVars := []corev1.EnvVar{
+		{Name: "INSIGHT_SCAN_IMAGES", Value: strings.Join(images, ",")},
+		{Name: "NAMESPACE", Value: buildPod.Namespace},
+		{Name: "DOCKER_HOST", Value: dockerhost},
+	}
+
+	// Copy env vars from the build pod to the scan pod
+	copyVars := []string{
+		"BRANCH", "BUILD_TYPE", "ENVIRONMENT", "ENVIRONMENT_TYPE", "PROJECT",
+		"PR_BASE_BRANCH", "PR_HEAD_BRANCH", "PR_NUMBER",
+		"LAGOON_ENVIRONMENT_VARIABLES", "LAGOON_FEATURE_FLAG_.+",
+	}
+	for i := range buildPod.Spec.Containers[0].Env {
+		if containsRegex(copyVars, buildPod.Spec.Containers[0].Env[i].Name) {
+			envVars = append(envVars, buildPod.Spec.Containers[0].Env[i])
+			continue
+		}
+	}
+
+	podSpec.Spec.Containers[0].Env = envVars
+
 	return podSpec, nil
 }
 
@@ -287,6 +262,22 @@ func imageScanPodLabels() map[string]string {
 
 func scannerNameFromBuildname(buildName string) string {
 	return fmt.Sprintf("insights-scanner-%v", buildName)
+}
+
+// containsRegex reports whether v matches a regular expression present in s.
+func containsRegex(s []string, v string) bool {
+	for _, rgx := range s {
+		re, err := regexp.Compile(fmt.Sprintf("(?i)^%s$", rgx))
+		if err != nil {
+			continue
+		}
+
+		if re.MatchString(v) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // successfulBuildPodsPredicate returns a list of predicate functions to determine
