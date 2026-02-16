@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"lagoon.sh/insights-remote/internal"
+	"lagoon.sh/insights-remote/internal/postprocess"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -16,6 +17,29 @@ import (
 type CustomPostProcess struct {
 	Client    client.Client
 	Templates Templates
+}
+
+func NewCustomPostProcessor(
+	enableDependencyTrackIntegration bool,
+	client client.Client,
+	dependencyTrackRootProjectNameTemplate string,
+	dependencyTrackParentProjectNameTemplate string,
+	dependencyTrackProjectNameTemplate string,
+	dependencyTrackVersionTemplate string,
+) postprocess.PostProcessor {
+	if !enableDependencyTrackIntegration {
+		return nil
+	}
+
+	return &CustomPostProcess{
+		Client: client,
+		Templates: newTemplate(
+			dependencyTrackRootProjectNameTemplate,
+			dependencyTrackParentProjectNameTemplate,
+			dependencyTrackProjectNameTemplate,
+			dependencyTrackVersionTemplate,
+		),
+	}
 }
 
 func (d *CustomPostProcess) PostProcess(message internal.LagoonInsightsMessage) error {

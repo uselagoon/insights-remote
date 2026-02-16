@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -29,7 +28,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/util/json"
 	"lagoon.sh/insights-remote/cmlib"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,26 +39,15 @@ import (
 // ConfigMapReconciler reconciles a ConfigMap object
 type ConfigMapReconciler struct {
 	client.Client
-	Scheme           *runtime.Scheme
-	MessageQWriter   func(data []byte) error
-	WriteToQueue     bool
-	BurnAfterReading bool
-	PostProcessors   postprocess.PostProcessors
+	Scheme         *runtime.Scheme
+	PostProcessors []postprocess.PostProcessor
 }
 
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=configmaps/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=core,resources=configmaps/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the ConfigMap object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.8.3/pkg/reconcile
+// Gathers insights related Config Maps and ships them to configured endpoints.
 func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
@@ -115,54 +102,32 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	// We reject any type that isn't either sbom or inspect to restrict outgoing types
 	if insightsType != internal.InsightsTypeSBOM && insightsType != internal.InsightsTypeInspect {
 		//// we mark this configMap as bad, and log an error
-		err := errors.New(fmt.Sprintf("insightsType '%v' unrecognized - rejecting configMap", insightsType))
+		err := fmt.Errorf("insightsType '%v' unrecognized - rejecting configMap", insightsType)
 		log.Error(err, err.Error())
-	} else {
-		// Here we attempt to process types using the new name structure
+		return ctrl.Result{}, err
+	}
 
-		insightsMessage = internal.LagoonInsightsMessage{
-			Payload:       configMap.Data,
-			BinaryPayload: configMap.BinaryData,
-			Annotations:   configMap.Annotations,
-			Labels:        configMap.Labels,
-			Namespace:     configMap.Namespace,
-			Environment:   environmentName,
-			Project:       projectName,
-			Type:          insightsType,
-			Service:       serviceName,
-		}
-
-		marshalledData, err := json.Marshal(insightsMessage)
-		if err != nil {
-			log.Error(err, "Unable to marshall config data")
-			return ctrl.Result{}, err
-		}
-
-		err = r.MessageQWriter(marshalledData)
-
-		if err != nil {
-			log.Error(err, "Unable to write to message broker")
-
-			//In this case what we want to do is defer the processing to a couple minutes from now
-			err = cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, minutesFromNow(5))
-
-			if err != nil {
-				log.Error(err, "Unable to update configmap")
-				return ctrl.Result{}, err
-			}
-
-			return ctrl.Result{}, err
-		}
-
+	insightsMessage = internal.LagoonInsightsMessage{
+		Payload:       configMap.Data,
+		BinaryPayload: configMap.BinaryData,
+		Annotations:   configMap.Annotations,
+		Labels:        configMap.Labels,
+		Namespace:     configMap.Namespace,
+		Environment:   environmentName,
+		Project:       projectName,
+		Type:          insightsType,
+		Service:       serviceName,
 	}
 
 	// Here we run the post processors
 	retryPostprocessing := false
-	for _, processor := range r.PostProcessors.PostProcessors {
-		err := processor.PostProcess(insightsMessage)
-		if err != nil {
-			log.Error(err, "Post processor failed")
-			retryPostprocessing = true
+	for _, processor := range r.PostProcessors {
+		if processor != nil {
+			err := processor.PostProcess(insightsMessage)
+			if err != nil {
+				log.Error(err, "Post processor failed")
+				retryPostprocessing = true
+			}
 		}
 	}
 
