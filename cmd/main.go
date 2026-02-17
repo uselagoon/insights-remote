@@ -227,22 +227,10 @@ func main() {
 	 * Env var overrides
 	 */
 
-	// Message queue.
-	mqUser = variables.GetEnv("RABBITMQ_USERNAME", mqUser)
-	mqPass = variables.GetEnv("RABBITMQ_PASSWORD", mqPass)
-	mqHost = variables.GetEnv("RABBITMQ_ADDRESS", mqHost)
-	mqPort = variables.GetEnv("RABBITMQ_PORT", mqPort)
-	mqEnable = variables.GetEnvBool("RABBITMQ_ENABLED", mqEnable)
-
 	// Insights processing.
-	insightsTokenSecret = variables.GetEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
 	clearConfigmapCronSched = variables.GetEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
 	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
-	enableNSReconciler = variables.GetEnvBool("ENABLE_NAMESPACE_RECONCILER", enableNSReconciler)
-	enableWebservice = variables.GetEnvBool("ENABLE_WEBSERVICE", enableWebservice)
-	tokenTargetLabel = variables.GetEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
-	webservicePort = variables.GetEnv("WEBSERVICE_PORT", webservicePort)
 	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
 	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
 
@@ -268,6 +256,7 @@ func main() {
 	mqUser = variables.GetEnv("RABBITMQ_USERNAME", mqUser)
 	mqPass = variables.GetEnv("RABBITMQ_PASSWORD", mqPass)
 	mqHost = variables.GetEnv("RABBITMQ_ADDRESS", mqHost)
+	mqPort = variables.GetEnv("RABBITMQ_PORT", mqPort)
 	mqEnable = variables.GetEnvBool("RABBITMQ_ENABLED", mqEnable)
 	mqTLS = variables.GetEnvBool("RABBITMQ_TLS", mqTLS)
 	mqCACert = variables.GetEnv("RABBITMQ_CACERT", mqCACert)
