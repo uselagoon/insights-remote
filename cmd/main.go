@@ -87,6 +87,8 @@ var (
 	generateTokenOnlyEnvironmentId           string
 	generateTokenOnlyProjectName             string
 	generateTokenOnlyEnvironmentName         string
+	enableBuildScanning                      bool
+	buildScannerImage                        string
 	enableDependencyTrackIntegration         bool
 	dependencyTrackApiEndpoint               string
 	dependencyTrackApiKey                    string
@@ -187,6 +189,12 @@ func main() {
 	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "ProjectName name for which to generate a token.")
 	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "EnvironmentName name for which to generate a token.")
 
+	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", true,
+		"Enables scanning of build images on successful builds (env var: ENABLE_BUILD_SCANNING).")
+
+	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
+		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
+
 	// Automatically parse logging flags.
 	opts := zap.Options{
 		Development: true,
@@ -219,9 +227,13 @@ func main() {
 	 */
 
 	// Insights processing.
-	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
 	clearConfigmapCronSched = variables.GetEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
+	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
+	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
+	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
+	// Check burn after reading value from environment
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
 		log.Printf("Burn-after-reading enabled via environment variable")
 		burnAfterReading = true
@@ -410,6 +422,21 @@ func main() {
 		}
 	} else {
 		log.Printf("Namespace reconciler disabled - skipping")
+	}
+
+	if enableBuildScanning {
+		log.Printf("Build reconciler enabled - starting")
+		if err = (&controllers.BuildReconciler{
+			Client:            mgr.GetClient(),
+			Scheme:            mgr.GetScheme(),
+			InsightsJWTSecret: insightsTokenSecret,
+			ScanImageName:     buildScannerImage,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("Build reconciler disabled - skipping")
 	}
 
 	if enableWebservice {
