@@ -66,7 +66,6 @@ var (
 	mqUser                                   string
 	mqPass                                   string
 	mqHost                                   string
-	mqPort                                   string
 	mqTLS                                    bool
 	mqVerify                                 bool
 	mqCACert                                 string
@@ -256,7 +255,6 @@ func main() {
 	mqUser = variables.GetEnv("RABBITMQ_USERNAME", mqUser)
 	mqPass = variables.GetEnv("RABBITMQ_PASSWORD", mqPass)
 	mqHost = variables.GetEnv("RABBITMQ_ADDRESS", mqHost)
-	mqPort = variables.GetEnv("RABBITMQ_PORT", mqPort)
 	mqEnable = variables.GetEnvBool("RABBITMQ_ENABLED", mqEnable)
 	mqTLS = variables.GetEnvBool("RABBITMQ_TLS", mqTLS)
 	mqCACert = variables.GetEnv("RABBITMQ_CACERT", mqCACert)
