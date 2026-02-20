@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.26.0
 
 require (
-	github.com/DependencyTrack/client-go v0.17.0
+	github.com/DependencyTrack/client-go v0.18.0
 	github.com/cheshir/go-mq/v2 v2.0.1
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v4 v4.5.2
