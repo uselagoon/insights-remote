@@ -189,7 +189,7 @@ func main() {
 	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "ProjectName name for which to generate a token.")
 	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "EnvironmentName name for which to generate a token.")
 
-	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", true,
+	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", false,
 		"Enables scanning of build images on successful builds (env var: ENABLE_BUILD_SCANNING).")
 
 	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
