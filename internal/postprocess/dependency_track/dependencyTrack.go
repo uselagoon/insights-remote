@@ -135,7 +135,7 @@ func getWriteInfo(message internal.LagoonInsightsMessage, templates Templates) (
 }
 
 // This will get or create a project in DependencyTrack
-func getOrCreateProject(client *dtrack.Client, projectName string, parentProject *dtrack.ParentRef) (dtrack.Project, error) {
+func getOrCreateProject(client *dtrack.Client, projectName string, parentProject *dtrack.ParentRef, leafProject bool) (dtrack.Project, error) {
 	// let's ensure we have a parent project
 	var project dtrack.Project
 	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, false)
@@ -145,11 +145,20 @@ func getOrCreateProject(client *dtrack.Client, projectName string, parentProject
 
 	// let's create the project if it doesn't exist
 	if len(projects) == 0 {
+
+		// Set up the collection logic depending on whether this is a leaf or not
+
+		collectionLogic := dtrack.CollectionLogicNone
+		if !leafProject {
+			collectionLogic = dtrack.CollectionLogicAggregateDirectChildren
+		}
+
 		project, err = client.Project.Create(context.TODO(), dtrack.Project{
-			Name:          projectName,
-			Active:        true,
-			ParentRef:     parentProject,
-			LastBOMImport: 0,
+			Name:            projectName,
+			Active:          true,
+			ParentRef:       parentProject,
+			LastBOMImport:   0,
+			CollectionLogic: &collectionLogic,
 		})
 
 		if err != nil {
@@ -199,12 +208,14 @@ func postProcess(message internal.LagoonInsightsMessage, templates Templates, cl
 	// Here we iterate over the parent projects, creating them if/when we need
 	// only the last one gets passed to the upload
 	var project *dtrack.Project
+
 	for _, projectName := range writeInfo.ParentProjectNames {
 		var parentRef *dtrack.ParentRef
 		if project != nil {
 			parentRef = &dtrack.ParentRef{UUID: project.UUID}
 		}
-		projectObj, err := getOrCreateProject(client, projectName, parentRef)
+
+		projectObj, err := getOrCreateProject(client, projectName, parentRef, false)
 		if err != nil {
 			return err
 		}
@@ -228,12 +239,21 @@ func postProcess(message internal.LagoonInsightsMessage, templates Templates, cl
 		return err
 	}
 
+	// let's build the tags for this project
+	// specifically, we'll see if we have any details about the service type
+	dtrackTags := []dtrack.Tag{}
+	if val, ok := message.Labels["lagoon.sh/environmentType"]; ok {
+		dtrackTags = append(dtrackTags, dtrack.Tag{Name: fmt.Sprintf("lagoon-environmenttype-%v", val)})
+
+	}
+
 	request := dtrack.BOMUploadRequest{
 		ProjectName:    writeInfo.ProjectName,
 		ParentUUID:     &project.UUID,
 		AutoCreate:     true,
 		ProjectVersion: writeInfo.ProjectVersion,
 		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()), //base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
+		ProjectTags:    dtrackTags,
 	}
 
 	uploadToken, err := client.BOM.Upload(context.TODO(), request)

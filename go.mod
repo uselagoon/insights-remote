@@ -20,7 +20,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.23.1
 )
 
-replace github.com/DependencyTrack/client-go => github.com/bomoko/client-go v0.0.0-20250408230851-d77d5a01059a
+replace github.com/DependencyTrack/client-go => github.com/bomoko/client-go v0.0.0-20260319185025-ae799a81ca39
 
 require (
 	cel.dev/expr v0.24.0 // indirect
@@ -68,7 +68,6 @@ require (
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/cel-go v0.26.1 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
