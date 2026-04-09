@@ -78,6 +78,7 @@ var (
 	insightsTokenSecret                      string
 	enableNSReconciler                       bool
 	enableCMReconciler                       bool
+	maxConcurrentCMReconcilers               int
 	enableInsightDeferred                    bool //TODO: Better names for this
 	enableWebservice                         bool
 	tokenTargetLabel                         string
@@ -119,6 +120,8 @@ func main() {
 		"The cron schedule specifying how often insightType configmaps should be cleared (env var: CLEAR_CONFIGMAP_SCHED).")
 	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
 		"Delete insights after certain time (env var: ENABLE_INSIGHTS_DEFERRED).")
+	flag.IntVar(&maxConcurrentCMReconcilers, "configmap-reconciler-max-concurrent", 1,
+		"Maximum number of configmap reconcilers that can run concurrently (env var: CONFIGMAP_RECONCILER_MAX_CONCURRENT).")
 
 	// Insights shipping: web service.
 	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
@@ -232,6 +235,9 @@ func main() {
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
 	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
 	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+	if v, err := strconv.Atoi(variables.GetEnv("CONFIGMAP_RECONCILER_MAX_CONCURRENT", "")); err == nil {
+		maxConcurrentCMReconcilers = v
+	}
 
 	// Check burn after reading value from environment
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
@@ -390,7 +396,7 @@ func main() {
 			Client:         mgr.GetClient(),
 			Scheme:         mgr.GetScheme(),
 			PostProcessors: postProcessors,
-		}).SetupWithManager(mgr); err != nil {
+		}).SetupWithManager(mgr, maxConcurrentCMReconcilers); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 			os.Exit(1)
 		}
