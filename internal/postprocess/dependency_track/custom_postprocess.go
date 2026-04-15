@@ -15,13 +15,15 @@ import (
 // CustomPostProcess will send insights for a namespace to a Dependency Track instance configured
 // for that namespace.
 type CustomPostProcess struct {
-	Client    client.Client
-	Templates Templates
+	Client       client.Client
+	Templates    Templates
+	PushProdOnly bool
 }
 
 func NewCustomPostProcessor(
 	enableDependencyTrackIntegration bool,
 	client client.Client,
+	pushProdOnly bool,
 	dependencyTrackRootProjectNameTemplate string,
 	dependencyTrackParentProjectNameTemplate string,
 	dependencyTrackProjectNameTemplate string,
@@ -32,7 +34,8 @@ func NewCustomPostProcessor(
 	}
 
 	return &CustomPostProcess{
-		Client: client,
+		Client:       client,
+		PushProdOnly: pushProdOnly,
 		Templates: newTemplate(
 			dependencyTrackRootProjectNameTemplate,
 			dependencyTrackParentProjectNameTemplate,
@@ -72,6 +75,6 @@ func (d *CustomPostProcess) PostProcess(message internal.LagoonInsightsMessage) 
 		return err
 	}
 
-	err = postProcess(message, d.Templates, client)
+	err = postProcess(message, d.PushProdOnly, d.Templates, client)
 	return err
 }

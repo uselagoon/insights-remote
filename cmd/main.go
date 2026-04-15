@@ -96,6 +96,7 @@ var (
 	dependencyTrackParentProjectNameTemplate string
 	dependencyTrackProjectNameTemplate       string
 	dependencyTrackVersionTemplate           string
+	dependencyTrackPushProdDefault           bool
 )
 
 func init() {
@@ -140,6 +141,7 @@ func main() {
 	flag.StringVar(&dependencyTrackParentProjectNameTemplate, "dependency-track-parent-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}", "The template for the parent project name in Dependency Track.")
 	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}", "The template for the project name in Dependency Track.")
 	flag.StringVar(&dependencyTrackVersionTemplate, "dependency-track-version-template", "unset", "The template for the version in Dependency Track.")
+	flag.BoolVar(&dependencyTrackPushProdDefault, "dependency-track-push-prod-only", true, "By default, dependency track will only push the prod environment, if true, requires explicit overriding.")
 
 	// Controller.
 	var enableLeaderElection bool
@@ -371,6 +373,7 @@ func main() {
 				enableDependencyTrackIntegration,
 				dependencyTrackApiEndpoint,
 				dependencyTrackApiKey,
+				dependencyTrackPushProdDefault,
 				dependencyTrackRootProjectNameTemplate,
 				dependencyTrackParentProjectNameTemplate,
 				dependencyTrackProjectNameTemplate,
@@ -379,6 +382,7 @@ func main() {
 			deptrack.NewCustomPostProcessor(
 				enableDependencyTrackIntegration,
 				mgr.GetClient(),
+				dependencyTrackPushProdDefault,
 				dependencyTrackRootProjectNameTemplate,
 				dependencyTrackParentProjectNameTemplate,
 				dependencyTrackProjectNameTemplate,

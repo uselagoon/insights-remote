@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log/slog"
 	"text/template"
 	"time"
 
@@ -28,6 +29,8 @@ type writeInfo struct {
 	ProjectName        string
 	ProjectVersion     string
 }
+
+const lagoonShEnvironmentTypeProd = "production"
 
 func newTemplate(
 	dependencyTrackRootProjectNameTemplate string,
@@ -198,7 +201,7 @@ func unzipByteStream(input io.Reader, output io.Writer) error {
 	return err
 }
 
-func postProcess(message internal.LagoonInsightsMessage, templates Templates, client *dtrack.Client) error {
+func postProcess(message internal.LagoonInsightsMessage, pushProdOnly bool, templates Templates, client *dtrack.Client) error {
 	// Now we pull out the necessary information to structure the write in terms of project name and parent.
 	writeInfo, err := getWriteInfo(message, templates)
 	if err != nil {
@@ -242,9 +245,15 @@ func postProcess(message internal.LagoonInsightsMessage, templates Templates, cl
 	// let's build the tags for this project
 	// specifically, we'll see if we have any details about the service type
 	dtrackTags := []dtrack.Tag{}
+	var environmentType string
 	if val, ok := message.Labels["lagoon.sh/environmentType"]; ok {
 		dtrackTags = append(dtrackTags, dtrack.Tag{Name: fmt.Sprintf("lagoon-environmenttype-%v", val)})
+		environmentType = val
+	}
 
+	if pushProdOnly && environmentType != lagoonShEnvironmentTypeProd {
+		slog.Info("Skipping non-production environment for Dependency Track", "environmentType", environmentType, "project", message.Project, "environment", message.Environment)
+		return nil
 	}
 
 	request := dtrack.BOMUploadRequest{
