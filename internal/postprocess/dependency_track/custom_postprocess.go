@@ -75,3 +75,7 @@ func (d *CustomPostProcess) PostProcess(message internal.LagoonInsightsMessage) 
 	err = postProcess(message, d.Templates, client)
 	return err
 }
+
+func (p *CustomPostProcess) Label() string {
+	return "postproc.core.insights.lagoon.sh/custom-deptrack"
+}
