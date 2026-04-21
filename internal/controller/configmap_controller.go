@@ -118,30 +118,49 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Here we run the post processors
-	retryPostprocessing := false
+	retryPostprocessors := []string{}
+	completePostProcessors := []string{}
+
 	for _, processor := range r.PostProcessors {
 		if processor != nil {
+
+			// we skip if the processor has been successful in the past
+			if val, ok := insightsMessage.Annotations[processor.Label()]; ok {
+				if val == "success" {
+					completePostProcessors = append(completePostProcessors, processor.Label())
+					continue
+				}
+			}
+
 			err := processor.PostProcess(insightsMessage)
 			if err != nil {
 				log.Error(err, "Post processor failed")
-				retryPostprocessing = true
+				retryPostprocessors = append(retryPostprocessors, processor.Label())
+				continue
 			}
+			completePostProcessors = append(completePostProcessors, processor.Label())
 		}
 	}
 
-	if retryPostprocessing {
-		// In this case what we want to do is defer the processing to a couple minutes from now
-		err := cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, minutesFromNow(5))
+	// let's build our comprehensive annotation and label updates
 
-		if err != nil {
-			log.Error(err, "Unable to update configmap")
-			return ctrl.Result{}, err
-		}
-
-		return ctrl.Result{}, err
+	updateAnnotations := map[string]string{}
+	for _, v := range completePostProcessors {
+		updateAnnotations[v] = "success"
+	}
+	for _, v := range retryPostprocessors {
+		updateAnnotations[v] = "failure"
 	}
 
-	err := cmlib.AnnotateCM(ctx, r.Client, configMap, internal.InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
+	updateLabels := map[string]string{}
+	if len(retryPostprocessors) > 0 {
+		//In this case what we want to do is defer the processing to a couple minutes from now
+		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(5)
+	} else {
+		updateAnnotations[internal.InsightsUpdatedAnnotationLabel] = time.Now().UTC().Format(time.RFC3339)
+	}
+
+	err := cmlib.BatchUpdateCM(ctx, r.Client, configMap, updateLabels, updateAnnotations)
 
 	if err != nil {
 		log.Error(err, "Unable to update configmap")

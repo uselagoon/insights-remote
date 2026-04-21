@@ -27,6 +27,10 @@ func NewPostProcessor(
 	}
 }
 
+func (p *PostProcess) Label() string {
+	return "postproc.core.insights.lagoon.sh/insights-core-handler"
+}
+
 func (p *PostProcess) PostProcess(message internal.LagoonInsightsMessage) error {
 	if message.Annotations["core.insights.lagoon.sh/enabled"] != "true" {
 		return nil
