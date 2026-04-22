@@ -43,6 +43,11 @@ type ConfigMapReconciler struct {
 	PostProcessors []postprocess.PostProcessor
 }
 
+const minutesBetweenRetries = 5
+const maxNumberOfRetries = 2
+const postProcRetriesAnnotationKey = "core.insights.lagoon.sh/postproc-retries"
+const maxRetryExceededLabelKey = "insights.lagoon.sh/max-retry-exceeded"
+
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
 // Gathers insights related Config Maps and ships them to configured endpoints.
@@ -121,6 +126,16 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	retryPostprocessors := []string{}
 	completePostProcessors := []string{}
 
+	var numberOfRetries int64
+
+	if retriesAnnotation, ok := insightsMessage.Annotations[postProcRetriesAnnotationKey]; ok {
+		var err error
+		numberOfRetries, err = strconv.ParseInt(retriesAnnotation, 10, 64)
+		if err != nil {
+			log.Info(fmt.Sprintf("unable to read insights %v label - setting to / assuming first run. Error: %v\n", postProcRetriesAnnotationKey, err.Error()))
+		}
+	}
+
 	for _, processor := range r.PostProcessors {
 		if processor != nil {
 
@@ -155,10 +170,20 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	updateLabels := map[string]string{}
 	if len(retryPostprocessors) > 0 {
 		//In this case what we want to do is defer the processing to a couple minutes from now
-		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(5)
+		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(minutesBetweenRetries)
+		numberOfRetries += 1
+
+		if numberOfRetries > maxNumberOfRetries { // We have now reached the end of the line.
+			updateLabels[maxRetryExceededLabelKey] = "MAX_RETRY_EXCEEDED"
+			log.Info(fmt.Sprintf("Max post-processor retries (%v) exceeded for configmap %v/%v - no further retries will be attempted", maxNumberOfRetries, configMap.Namespace, configMap.Name))
+		}
+
 	} else {
 		updateAnnotations[internal.InsightsUpdatedAnnotationLabel] = time.Now().UTC().Format(time.RFC3339)
 	}
+
+	// let's write the number of retries either way
+	updateAnnotations[postProcRetriesAnnotationKey] = strconv.FormatInt(numberOfRetries, 10)
 
 	err := cmlib.BatchUpdateCM(ctx, r.Client, configMap, updateLabels, updateAnnotations)
 
@@ -196,6 +221,28 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 	}
 }
 
+// Let's set up a predicate that filters out anything without a particular label AND
+// we don't care about delete events
+func insightMaxRetryPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event event.CreateEvent) bool {
+			if labelExists(maxRetryExceededLabelKey, event.Object) {
+				return false
+			}
+			return true
+		},
+		UpdateFunc: func(event event.UpdateEvent) bool {
+			if labelExists(maxRetryExceededLabelKey, event.ObjectNew) {
+				return false
+			}
+			return true
+		},
+		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
+			return false
+		},
+	}
+}
+
 func labelExists(label string, event client.Object) bool {
 	for k, v := range event.GetLabels() {
 		if k == label || v == label {
@@ -220,6 +267,7 @@ func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.ConfigMap{}).
 		WithEventFilter(insightLabelsOnlyPredicate()).
+		WithEventFilter(insightMaxRetryPredicate()).
 		Complete(r)
 }
 
