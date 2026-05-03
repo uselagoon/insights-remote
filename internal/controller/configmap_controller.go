@@ -39,12 +39,12 @@ import (
 // ConfigMapReconciler reconciles a ConfigMap object
 type ConfigMapReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	PostProcessors []postprocess.PostProcessor
+	Scheme                *runtime.Scheme
+	PostProcessors        []postprocess.PostProcessor
+	MinutesBetweenRetries int
+	MaxNumberOfRetries    int
 }
 
-const minutesBetweenRetries = 5
-const maxNumberOfRetries = 2
 const postProcRetriesAnnotationKey = "core.insights.lagoon.sh/postproc-retries"
 const maxRetryExceededLabelKey = "insights.lagoon.sh/max-retry-exceeded"
 const successfulPostProcessRun = "success"
@@ -170,12 +170,12 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	updateLabels := map[string]string{}
 	if len(retryPostprocessors) > 0 { // There was a problem writing these data to one of the endpoints
 		//In this case what we want to do is defer the processing to a couple minutes from now
-		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(minutesBetweenRetries)
+		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(r.MinutesBetweenRetries)
 		numberOfRetries += 1
 
-		if numberOfRetries > maxNumberOfRetries { // We have now reached the end of the line.
+		if numberOfRetries > int64(r.MaxNumberOfRetries) { // We have now reached the end of the line.
 			updateLabels[maxRetryExceededLabelKey] = "MAX_RETRY_EXCEEDED"
-			log.Info(fmt.Sprintf("Max post-processor retries (%v) exceeded for configmap %v/%v - no further retries will be attempted", maxNumberOfRetries, configMap.Namespace, configMap.Name))
+			log.Info(fmt.Sprintf("Max post-processor retries (%v) exceeded for configmap %v/%v - no further retries will be attempted", r.MaxNumberOfRetries, configMap.Namespace, configMap.Name))
 		}
 
 	} else { // we've managed to get everything stowed away, let's mark this as done.
