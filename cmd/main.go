@@ -78,6 +78,8 @@ var (
 	insightsTokenSecret                      string
 	enableNSReconciler                       bool
 	enableCMReconciler                       bool
+	cmReconcilerMaxRetries                   int
+	cmReconcilerMinutesBetweenRetries        int
 	enableInsightDeferred                    bool //TODO: Better names for this
 	enableWebservice                         bool
 	tokenTargetLabel                         string
@@ -119,6 +121,10 @@ func main() {
 		"The cron schedule specifying how often insightType configmaps should be cleared (env var: CLEAR_CONFIGMAP_SCHED).")
 	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
 		"Delete insights after certain time (env var: ENABLE_INSIGHTS_DEFERRED).")
+	flag.IntVar(&cmReconcilerMaxRetries, "configmap-reconciler-max-retries", 3,
+		"The number of times the configmap reconciler will attempt to run a post-processor before failing")
+	flag.IntVar(&cmReconcilerMinutesBetweenRetries, "configmap-reconciler-mins-between-retries", 3,
+		"The number of minutes the configmap reconciler will wait before attempting a rerun on a failed post-processor")
 
 	// Insights shipping: web service.
 	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
@@ -232,6 +238,10 @@ func main() {
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
 	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
 	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
+	// Controlling CM post-processor retries
+	cmReconcilerMaxRetries = variables.GetEnvInt("CONFIGMAP_RECONCILER_MAX_RETRIES", cmReconcilerMaxRetries)
+	cmReconcilerMinutesBetweenRetries = variables.GetEnvInt("CONFIGMAP_RECONCILER_MINS_BETWEEN_RETRIES", cmReconcilerMinutesBetweenRetries)
 
 	// Check burn after reading value from environment
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
@@ -387,9 +397,11 @@ func main() {
 		}
 
 		if err = (&controllers.ConfigMapReconciler{
-			Client:         mgr.GetClient(),
-			Scheme:         mgr.GetScheme(),
-			PostProcessors: postProcessors,
+			Client:                mgr.GetClient(),
+			Scheme:                mgr.GetScheme(),
+			PostProcessors:        postProcessors,
+			MinutesBetweenRetries: cmReconcilerMinutesBetweenRetries,
+			MaxNumberOfRetries:    cmReconcilerMaxRetries,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 			os.Exit(1)
