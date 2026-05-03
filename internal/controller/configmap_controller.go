@@ -47,6 +47,8 @@ const minutesBetweenRetries = 5
 const maxNumberOfRetries = 2
 const postProcRetriesAnnotationKey = "core.insights.lagoon.sh/postproc-retries"
 const maxRetryExceededLabelKey = "insights.lagoon.sh/max-retry-exceeded"
+const successfulPostProcessRun = "success"
+const failedPostProcessRun = "failure"
 
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
@@ -132,16 +134,18 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		var err error
 		numberOfRetries, err = strconv.ParseInt(retriesAnnotation, 10, 64)
 		if err != nil {
+			numberOfRetries = 0
 			log.Info(fmt.Sprintf("unable to read insights %v label - setting to / assuming first run. Error: %v\n", postProcRetriesAnnotationKey, err.Error()))
 		}
 	}
 
+	updateAnnotations := map[string]string{}
 	for _, processor := range r.PostProcessors {
 		if processor != nil {
 
 			// we skip if the processor has been successful in the past
 			if val, ok := insightsMessage.Annotations[processor.Label()]; ok {
-				if val == "success" {
+				if val == successfulPostProcessRun {
 					completePostProcessors = append(completePostProcessors, processor.Label())
 					continue
 				}
@@ -150,25 +154,21 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			err := processor.PostProcess(insightsMessage)
 			if err != nil {
 				log.Error(err, "Post processor failed")
+				// We line this up for retrying the next time around
 				retryPostprocessors = append(retryPostprocessors, processor.Label())
+				// let's update our annotations to set this as a failure
+				updateAnnotations[processor.Label()] = failedPostProcessRun
+				// We'll also want to set or update an annotation telling us why it failed
+				updateAnnotations[fmt.Sprintf("%v-error", processor.Label())] = err.Error()
 				continue
 			}
 			completePostProcessors = append(completePostProcessors, processor.Label())
+			updateAnnotations[processor.Label()] = successfulPostProcessRun
 		}
 	}
 
-	// let's build our comprehensive annotation and label updates
-
-	updateAnnotations := map[string]string{}
-	for _, v := range completePostProcessors {
-		updateAnnotations[v] = "success"
-	}
-	for _, v := range retryPostprocessors {
-		updateAnnotations[v] = "failure"
-	}
-
 	updateLabels := map[string]string{}
-	if len(retryPostprocessors) > 0 {
+	if len(retryPostprocessors) > 0 { // There was a problem writing these data to one of the endpoints
 		//In this case what we want to do is defer the processing to a couple minutes from now
 		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(minutesBetweenRetries)
 		numberOfRetries += 1
@@ -178,7 +178,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			log.Info(fmt.Sprintf("Max post-processor retries (%v) exceeded for configmap %v/%v - no further retries will be attempted", maxNumberOfRetries, configMap.Namespace, configMap.Name))
 		}
 
-	} else {
+	} else { // we've managed to get everything stowed away, let's mark this as done.
 		updateAnnotations[internal.InsightsUpdatedAnnotationLabel] = time.Now().UTC().Format(time.RFC3339)
 	}
 
