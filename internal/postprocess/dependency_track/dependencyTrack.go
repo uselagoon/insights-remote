@@ -15,15 +15,15 @@ import (
 )
 
 type Templates struct {
-	//RootProjectNameTemplate   string // If a root project is set, all subsequent projects will be children of this project
-	//ParentProjectNameTemplate string
+	// RootProjectNameTemplate   string // If a root project is set, all subsequent projects will be children of this project
+	// ParentProjectNameTemplate string
 	ParentProjectNameTemplates []string
 	ProjectNameTemplate        string
 	VersionTemplate            string
 }
 
 type writeInfo struct {
-	//RootName          string
+	// RootName          string
 	ParentProjectNames []string
 	ProjectName        string
 	ProjectVersion     string
@@ -252,7 +252,7 @@ func postProcess(message internal.LagoonInsightsMessage, templates Templates, cl
 		ParentUUID:     &project.UUID,
 		AutoCreate:     true,
 		ProjectVersion: writeInfo.ProjectVersion,
-		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()), //base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
+		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
 		ProjectTags:    dtrackTags,
 	}
 

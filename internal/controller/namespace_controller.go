@@ -99,7 +99,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				foundItem = true
 			}
 		} else {
-			//we delete this secret straight
+			// we delete this secret straight
 			deleteSecretMessage = "key INSIGHTS_TOKEN does not exist. Secret is invalid."
 		}
 		if deleteSecretMessage != "" {
@@ -112,7 +112,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 	}
 
-	if !foundItem { //let's create the token and secret
+	if !foundItem { // let's create the token and secret
 		labels := ns.GetLabels()
 
 		environmentId, err := getValueFromMap(labels, "lagoon.sh/environmentId")
@@ -144,7 +144,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				Namespace: ns.GetName(),
 				Labels: map[string]string{
 					insightsTokenLabel:         "true",
-					"lagoon.sh/dynamic-secret": "insights-token", //This will ensure that this is dynamically mounted in pods
+					"lagoon.sh/dynamic-secret": "insights-token", // This will ensure that this is dynamically mounted in pods
 				},
 				Annotations: map[string]string{},
 			},

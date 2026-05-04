@@ -116,7 +116,7 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 	fmt.Println("Going to write to namespace ", namespace)
 
 	details := &internal.Problems{Type: "direct.problems"}
-	problemList := *new([]internal.Problem)
+	problemList := []internal.Problem(nil)
 
 	if err = c.ShouldBindJSON(&problemList); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -127,7 +127,7 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 		return
 	}
 
-	//let's force our facts to get pushed to the right place
+	// let's force our problems to get pushed to the right place
 	lid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -205,7 +205,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 	// we try two different ways of parsing incoming facts - first as a simple list of facts
 	ByteBody, _ := ioutil.ReadAll(c.Request.Body)
 
-	factList := *new([]internal.Fact)
+	factList := []internal.Fact(nil)
 	if err = json.Unmarshal(ByteBody, &factList); err != nil { // it might just be they're passing the "big" version with all details
 		if err = json.Unmarshal(ByteBody, details); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -219,7 +219,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 		details.Facts = factList
 	}
 
-	//let's force our facts to get pushed to the right place
+	// let's force our facts to get pushed to the right place
 	lid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{

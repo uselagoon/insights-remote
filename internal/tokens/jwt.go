@@ -3,6 +3,7 @@ package tokens
 import (
 	"errors"
 	"fmt"
+
 	"github.com/golang-jwt/jwt/v4"
 )
 
@@ -40,7 +41,6 @@ func ValidateAndExtractNamespaceDetailsFromToken(key, token string) (NamespaceDe
 
 	if claims, ok := outToken.Claims.(jwt.MapClaims); ok && outToken.Valid {
 		if environmentId, ok := claims["EnvironmentId"]; ok {
-			//return fmt.Sprintf("%v", EnvironmentId), nil
 			ret.EnvironmentId = fmt.Sprintf("%v", environmentId)
 		} else {
 			return ret, errors.New("Unable to find key 'EnvironmentId' in valid token")
@@ -53,14 +53,12 @@ func ValidateAndExtractNamespaceDetailsFromToken(key, token string) (NamespaceDe
 		}
 
 		if environmentName, ok := claims["EnvironmentName"]; ok {
-			//return fmt.Sprintf("%v", EnvironmentId), nil
 			ret.EnvironmentName = fmt.Sprintf("%v", environmentName)
 		} else {
 			return ret, errors.New("Unable to find key 'EnvironmentName' in valid token")
 		}
 
 		if projectName, ok := claims["ProjectName"]; ok {
-			//return fmt.Sprintf("%v", EnvironmentId), nil
 			ret.ProjectName = fmt.Sprintf("%v", projectName)
 		} else {
 			return ret, errors.New("Unable to find key 'ProjectName' in valid token")

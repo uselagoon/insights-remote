@@ -242,7 +242,6 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 	for _, i := range podlist.Items {
 
 		log.Log.Info("Looking at following image by name: " + i.Name)
-		//if i.Name != newScannerName { // Then we have a rogue pod
 		err = r.Client.Delete(ctx, &i)
 		if err != nil {
 			return err
@@ -294,12 +293,12 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 			labels := event.ObjectNew.GetLabels()
 			_, err := getValueFromMap(labels, "lagoon.sh/buildName")
 			if err != nil {
-				return false //this isn't a build pod
+				return false // this isn't a build pod
 			}
 
 			_, err = getValueFromMap(labels, insightsScanPodLabel)
 			if err == nil {
-				return false //this isn't a build pod
+				return false // this isn't a build pod
 			}
 
 			val, err := getValueFromMap(labels, insightsBuildPodScannedLabel)
