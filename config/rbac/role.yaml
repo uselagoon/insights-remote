@@ -8,7 +8,8 @@ rules:
   - ""
   resources:
   - configmaps
-  - namespaces
+  - pods
+  - secrets
   verbs:
   - create
   - delete
@@ -20,16 +21,16 @@ rules:
 - apiGroups:
   - ""
   resources:
-  - configmaps/finalizers
-  - namespaces/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - ""
-  resources:
-  - configmaps/status
-  - namespaces/status
+  - namespaces
   verbs:
   - get
-  - patch
-  - update
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - get
+  - list
+  - watch

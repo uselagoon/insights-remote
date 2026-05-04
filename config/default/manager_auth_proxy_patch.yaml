@@ -1,0 +1,39 @@
+# This patch inject a sidecar container which is a HTTP proxy for the controller manager,
+# it performs RBAC authorization against the Kubernetes API using SubjectAccessReviews.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: controller-manager
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        args:
+        - "--metrics-bind-address=:8443"
+        - "--leader-elect"
+        - "--rabbitmq-tls=true"
+        - "--rabbitmq-verify=true"
+        - "--rabbitmq-cacert=/ca.crt"
+        - "--rabbitmq-clientcert=/tls.crt"
+        - "--rabbitmq-clientkey=/tls.key"
+        ports:
+        - containerPort: 8443
+          name: https
+        - containerPort: 5000
+          name: backend
+        volumeMounts:
+        - mountPath: /ca.crt
+          name: lagoon-broker-tls
+          subPath: ca.crt
+        - mountPath: /tls.crt
+          name: lagoon-broker-tls
+          subPath: tls.crt
+        - mountPath: /tls.key
+          name: lagoon-broker-tls
+          subPath: tls.key
+      volumes:
+      - name: lagoon-broker-tls
+        secret:
+          secretName: lagoon-broker-tls

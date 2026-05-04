@@ -1,12 +1,13 @@
-package postprocess
+package deptrack
 
 import (
-	"lagoon.sh/insights-remote/internal"
 	"reflect"
 	"testing"
+
+	"lagoon.sh/insights-remote/internal"
 )
 
-func TestDependencyTrackPostProcess_processTemplate(t *testing.T) {
+func Test_processTemplate(t *testing.T) {
 	type fields struct {
 		ApiEndpoint               string
 		ApiKey                    string
@@ -54,15 +55,7 @@ func TestDependencyTrackPostProcess_processTemplate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := &DependencyTrackPostProcess{
-				ApiEndpoint: tt.fields.ApiEndpoint,
-				ApiKey:      tt.fields.ApiKey,
-				Templates: DependencyTrackTemplates{
-					ParentProjectNameTemplates: []string{tt.fields.ParentProjectNameTemplate},
-					ProjectNameTemplate:        tt.fields.ProjectNameTemplate,
-				},
-			}
-			got, err := processTemplate(d.Templates.ParentProjectNameTemplates[0], tt.args.info)
+			got, err := processTemplate(tt.fields.ParentProjectNameTemplate, tt.args.info)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetParentProjectName() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -77,12 +70,12 @@ func TestDependencyTrackPostProcess_processTemplate(t *testing.T) {
 func Test_getWriteInfo(t *testing.T) {
 	type args struct {
 		message   internal.LagoonInsightsMessage
-		templates DependencyTrackTemplates
+		templates Templates
 	}
 	tests := []struct {
 		name    string
 		args    args
-		want    dependencyTrackWriteInfo
+		want    writeInfo
 		wantErr bool
 	}{
 		{
@@ -97,12 +90,12 @@ func Test_getWriteInfo(t *testing.T) {
 					Project:     "testProject",
 					Environment: "testEnvironment",
 				},
-				templates: DependencyTrackTemplates{
+				templates: Templates{
 					ProjectNameTemplate: "{{ .ProjectName }}-{{ .ServiceName }}",
 					VersionTemplate:     "1.0.0",
 				},
 			},
-			want: dependencyTrackWriteInfo{
+			want: writeInfo{
 				//ParentProjectName: "",
 				ProjectName:    "testProject-clilabel",
 				ProjectVersion: "1.0.0",
@@ -120,13 +113,13 @@ func Test_getWriteInfo(t *testing.T) {
 					Project:     "testProject",
 					Environment: "testEnvironment",
 				},
-				templates: DependencyTrackTemplates{
+				templates: Templates{
 					ParentProjectNameTemplates: []string{"testproject-{{ .ProjectName }}"},
 					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}",
 					VersionTemplate:            "1.0.0",
 				},
 			},
-			want: dependencyTrackWriteInfo{
+			want: writeInfo{
 				//ParentProjectName: "testproject-testProject",
 				ParentProjectNames: []string{"testproject-testProject"},
 				ProjectName:        "testProject-clilabel",
@@ -145,13 +138,13 @@ func Test_getWriteInfo(t *testing.T) {
 					Project:     "testProject",
 					Environment: "testEnvironment",
 				},
-				templates: DependencyTrackTemplates{
+				templates: Templates{
 					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
 					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}",
 					VersionTemplate:            "1.0.0",
 				},
 			},
-			want: dependencyTrackWriteInfo{
+			want: writeInfo{
 				ParentProjectNames: []string{"someRootProject", "testproject-testProject"},
 				ProjectName:        "testProject-clilabel",
 				ProjectVersion:     "1.0.0",
@@ -169,7 +162,7 @@ func Test_getWriteInfo(t *testing.T) {
 					Project:     "",
 					Environment: "testEnvironment",
 				},
-				templates: DependencyTrackTemplates{
+				templates: Templates{
 					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
 					//RootProjectNameTemplate:   "SomeRootProject",
 					//ParentProjectNameTemplate: "testproject-{{ .ProjectName }}",
@@ -178,7 +171,7 @@ func Test_getWriteInfo(t *testing.T) {
 				},
 			},
 
-			want: dependencyTrackWriteInfo{
+			want: writeInfo{
 				ParentProjectNames: []string{"someRootProject", "testproject-testprojectlabel"},
 				ProjectName:        "testprojectlabel-clilabel",
 				ProjectVersion:     "1.0.0",
@@ -197,14 +190,14 @@ func Test_getWriteInfo(t *testing.T) {
 					Project:     "",
 					Environment: "testEnvironment",
 				},
-				templates: DependencyTrackTemplates{
+				templates: Templates{
 					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
 					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
 					VersionTemplate:            "1.0.0",
 				},
 			},
 
-			want: dependencyTrackWriteInfo{
+			want: writeInfo{
 				ParentProjectNames: []string{"someRootProject", "testproject-testprojectlabel"},
 				ProjectName:        "testprojectlabel-clilabel-testEnvironmentType",
 				ProjectVersion:     "1.0.0",
@@ -222,14 +215,14 @@ func Test_getWriteInfo(t *testing.T) {
 					Project:     "",
 					Environment: "testEnvironment",
 				},
-				templates: DependencyTrackTemplates{
+				templates: Templates{
 					ParentProjectNameTemplates: []string{"someRootProject", "testproject-{{ .ProjectName }}"},
 					ProjectNameTemplate:        "{{ .ProjectName }}-{{ .ServiceName }}-{{ .EnvironmentType }}",
 					VersionTemplate:            "1.0.0",
 				},
 			},
 
-			want: dependencyTrackWriteInfo{
+			want: writeInfo{
 				ParentProjectNames: []string{"someRootProject", "testproject-testprojectlabel"},
 				ProjectName:        "testprojectlabel-clilabel-unknown",
 				ProjectVersion:     "1.0.0",

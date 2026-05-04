@@ -18,15 +18,19 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
-	"lagoon.sh/insights-remote/internal"
-	controllers "lagoon.sh/insights-remote/internal/controller"
-	"lagoon.sh/insights-remote/internal/postprocess"
 	"log"
 	"os"
 	"strconv"
 	"time"
+
+	"lagoon.sh/insights-remote/internal"
+	controllers "lagoon.sh/insights-remote/internal/controller"
+	"lagoon.sh/insights-remote/internal/postprocess"
+	deptrack "lagoon.sh/insights-remote/internal/postprocess/dependency_track"
+	insightscore "lagoon.sh/insights-remote/internal/postprocess/insights_core"
 
 	"lagoon.sh/insights-remote/internal/service"
 	"lagoon.sh/insights-remote/internal/tokens"
@@ -39,6 +43,7 @@ import (
 	"k8s.io/apimachinery/pkg/selection"
 	client2 "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -82,6 +87,8 @@ var (
 	generateTokenOnlyEnvironmentId           string
 	generateTokenOnlyProjectName             string
 	generateTokenOnlyEnvironmentName         string
+	enableBuildScanning                      bool
+	buildScannerImage                        string
 	enableDependencyTrackIntegration         bool
 	dependencyTrackApiEndpoint               string
 	dependencyTrackApiKey                    string
@@ -97,38 +104,63 @@ func init() {
 	//+kubebuilder:scaffold:scheme
 }
 
-func mqWriteObject(data []byte) error {
-	messageQ, err := mq.New(mqConfig)
-	if err != nil {
-		//TODO: Log useful data here ...
-		return err
-	}
-	defer messageQ.Close()
-
-	producer, err := messageQ.SyncProducer("lagoon-insights")
-	if err != nil {
-		//log.Error(err, "Unable to write to message broker")
-		return err
-	}
-
-	err = producer.Produce(data)
-
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func main() {
-	var metricsAddr string
+
+	/*
+	 * Command flags.
+	 */
+
+	// Insights processing.
+	flag.BoolVar(&enableCMReconciler, "enable-configmap-reconciler", true,
+		"Enable the configmap reconciler (env var: ENABLE_CONFIGMAP_RECONCILER).")
+	flag.BoolVar(&burnAfterReading, "burn-after-reading", false,
+		"Remove insights configmaps after they have been processed (env var: BURN_AFTER_READING).")
+	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
+		"The cron schedule specifying how often insightType configmaps should be cleared (env var: CLEAR_CONFIGMAP_SCHED).")
+	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
+		"Delete insights after certain time (env var: ENABLE_INSIGHTS_DEFERRED).")
+
+	// Insights shipping: web service.
+	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
+		"enable-namespace-reconciler (env var: ENABLE_NAMESPACE_RECONCILER).")
+	flag.BoolVar(&enableWebservice, "enable-webservice", true,
+		"Enables json endpoint for writing insights data (env var: ENABLE_WEBSERVICE).")
+	flag.StringVar(&webservicePort, "webservice-port", "8888",
+		"Port on which we expose the JSON webservice (env var: WEBSERVICE_PORT).")
+	flag.StringVar(&insightsTokenSecret, "insights-token-secret", "testsecret",
+		"The secret used to create the insights tokens used to communicate back to the webservice (env var: INSIGHTS_TOKEN_SECRET).")
+	flag.StringVar(&tokenTargetLabel, "token-target-label", "",
+		"Constrain webservice token generation to namespaces with this label (env var: TOKEN_TARGET_LABEL).")
+
+	// Insights shipping: Dependency Track.
+	flag.BoolVar(&enableDependencyTrackIntegration, "enable-dependency-track-integration", false, "Enable Dependency Track integration.")
+	flag.StringVar(&dependencyTrackApiEndpoint, "dependency-track-api-endpoint", "", "The endpoint for the Dependency Track API.")
+	flag.StringVar(&dependencyTrackApiKey, "dependency-track-api-key", "", "The API key for the Dependency Track API.")
+	flag.StringVar(&dependencyTrackRootProjectNameTemplate, "dependency-track-root-project-name-template", "{{ .ProjectName }}", "The template for the root project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackParentProjectNameTemplate, "dependency-track-parent-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}", "The template for the parent project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}", "The template for the project name in Dependency Track.")
+	flag.StringVar(&dependencyTrackVersionTemplate, "dependency-track-version-template", "unset", "The template for the version in Dependency Track.")
+
+	// Controller.
 	var enableLeaderElection bool
-	var probeAddr string
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+
+	// Metrics.
+	var metricsAddr string
+	var secureMetrics bool
+	var enableHTTP2 bool
+	var probeAddr string
+	flag.StringVar(&metricsAddr, "metrics-bind-address", "0", "The address the metrics endpoint binds to. "+
+		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
+	flag.BoolVar(&secureMetrics, "metrics-secure", true,
+		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=false to use HTTP instead.")
+	flag.BoolVar(&enableHTTP2, "enable-http2", false,
+		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+
+	// RMQ.
 	flag.BoolVar(&mqEnable, "rabbitmq-enabled", true,
 		"Used primarily for debugging to disable the Message Broker connection (env var: RABBITMQ_ENABLED).")
 	flag.StringVar(&mqUser, "rabbitmq-username", "guest",
@@ -149,58 +181,29 @@ func main() {
 		"The path to the client key")
 	flag.IntVar(&rabbitReconnectRetryInterval, "rabbitmq-reconnect-retry-interval", 30,
 		"The retry interval for rabbitmq.")
-	flag.BoolVar(&burnAfterReading, "burn-after-reading", false,
-		"Remove insights configmaps after they have been processed (env var: BURN_AFTER_READING).")
-	flag.StringVar(&clearConfigmapCronSched, "clear-configmap-sched", "* * * * *",
-		"The cron schedule specifying how often insightType configmaps should be cleared (env var: CLEAR_CONFIGMAP_SCHED).")
 
-	flag.StringVar(&insightsTokenSecret, "insights-token-secret", "testsecret",
-		"The secret used to create the insights tokens used to communicate back to the webservice (env var: INSIGHTS_TOKEN_SECRET).")
-
-	flag.BoolVar(&enableCMReconciler, "enable-configmap-reconciler", true,
-		"Enable the configmap reconciler (env var: ENABLE_CONFIGMAP_RECONCILER).")
-
-	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
-		"enable-namespace-reconciler (env var: ENABLE_NAMESPACE_RECONCILER).")
-
-	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
-		"Delete insights after certain time (env var: ENABLE_INSIGHTS_DEFERRED).")
-
-	flag.BoolVar(&enableWebservice, "enable-webservice", true,
-		"Enables json endpoint for writing insights data (env var: ENABLE_WEBSERVICE).")
-
-	flag.StringVar(&tokenTargetLabel, "token-target-label", "",
-		"Constrain webservice token generation to namespaces with this label (env var: TOKEN_TARGET_LABEL).")
-
-	flag.StringVar(&webservicePort, "webservice-port", "8888",
-		"Port on which we expose the JSON webservice (env var: WEBSERVICE_PORT).")
-
+	// CLI command and flags.
 	flag.BoolVar(&generateTokenOnly, "generate-token-only", false, "Generate a token and exit.")
-
 	flag.StringVar(&generateTokenOnlyNamespace, "generate-token-only-namespace", "", "Namespace for which to generate a token.")
-
 	flag.StringVar(&generateTokenOnlyEnvironmentId, "generate-token-only-environment-id", "", "EnvironmentName ID for which to generate a token.")
-
 	flag.StringVar(&generateTokenOnlyProjectName, "generate-token-only-project-name", "", "ProjectName name for which to generate a token.")
-
 	flag.StringVar(&generateTokenOnlyEnvironmentName, "generate-token-only-environment-name", "", "EnvironmentName name for which to generate a token.")
 
-	// If these two are set, we will post to Dependency Track post-process
-	flag.BoolVar(&enableDependencyTrackIntegration, "enable-dependency-track-integration", false, "Enable Dependency Track integration.")
-	flag.StringVar(&dependencyTrackApiEndpoint, "dependency-track-api-endpoint", "", "The endpoint for the Dependency Track API.")
-	flag.StringVar(&dependencyTrackApiKey, "dependency-track-api-key", "", "The API key for the Dependency Track API.")
-	flag.StringVar(&dependencyTrackRootProjectNameTemplate, "dependency-track-root-project-name-template", "{{ .ProjectName }}", "The template for the root project name in Dependency Track.")
-	flag.StringVar(&dependencyTrackParentProjectNameTemplate, "dependency-track-parent-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}", "The template for the parent project name in Dependency Track.")
-	flag.StringVar(&dependencyTrackProjectNameTemplate, "dependency-track-project-name-template", "{{ .ProjectName }}-{{ .EnvironmentName }}-{{ .ServiceName }}", "The template for the project name in Dependency Track.")
-	flag.StringVar(&dependencyTrackVersionTemplate, "dependency-track-version-template", "unset", "The template for the version in Dependency Track.")
+	flag.BoolVar(&enableBuildScanning, "enable-build-scanner", false,
+		"Enables scanning of build images on successful builds (env var: ENABLE_BUILD_SCANNING).")
 
+	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
+		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
+
+	// Automatically parse logging flags.
 	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
+
 	flag.Parse()
 
-	//Generate a token and exit if generateTokenOnly is set
+	// Generate a token and exit if generateTokenOnly is set.
 	if generateTokenOnly {
 		if generateTokenOnlyEnvironmentName == "" || generateTokenOnlyEnvironmentId == "" || generateTokenOnlyProjectName == "" || generateTokenOnlyNamespace == "" {
 			log.Fatal("generate-token-only requires all of generate-token-only-environment-name, generate-token-only-environment-id, generate-token-only-project-name and generate-token-only-namespace to be set")
@@ -219,12 +222,39 @@ func main() {
 		os.Exit(0)
 	}
 
-	//Grab overrides from environment where appropriate
+	/*
+	 * Env var overrides
+	 */
 
+	// Insights processing.
+	clearConfigmapCronSched = variables.GetEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
+	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
+	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
+	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
+	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
+	// Check burn after reading value from environment
+	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
+		log.Printf("Burn-after-reading enabled via environment variable")
+		burnAfterReading = true
+	}
+
+	// Insights shipping: web service.
+	enableNSReconciler = variables.GetEnvBool("ENABLE_NAMESPACE_RECONCILER", enableNSReconciler)
+	enableWebservice = variables.GetEnvBool("ENABLE_WEBSERVICE", enableWebservice)
+	webservicePort = variables.GetEnv("WEBSERVICE_PORT", webservicePort)
+	insightsTokenSecret = variables.GetEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
+	tokenTargetLabel = variables.GetEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
+
+	// Insights shipping: Dependency Track.
+	enableDependencyTrackIntegration = variables.GetEnvBool("ENABLE_DEPENDENCY_TRACK_INTEGRATION", enableDependencyTrackIntegration)
+	dependencyTrackApiEndpoint = variables.GetEnv("DEPENDENCY_TRACK_API_ENDPOINT", dependencyTrackApiEndpoint)
+	dependencyTrackApiKey = variables.GetEnv("DEPENDENCY_TRACK_API_KEY", dependencyTrackApiKey)
+
+	// RMQ env var overrides.
 	mqUser = variables.GetEnv("RABBITMQ_USERNAME", mqUser)
 	mqPass = variables.GetEnv("RABBITMQ_PASSWORD", mqPass)
 	mqHost = variables.GetEnv("RABBITMQ_ADDRESS", mqHost)
-	//rabbitReconnectRetryInterval = variables.GetEnv("RABBITMQ_RECONNECT_RETRY_INTERVAL", rabbitReconnectRetryInterval)
 	mqEnable = variables.GetEnvBool("RABBITMQ_ENABLED", mqEnable)
 	mqTLS = variables.GetEnvBool("RABBITMQ_TLS", mqTLS)
 	mqCACert = variables.GetEnv("RABBITMQ_CACERT", mqCACert)
@@ -232,28 +262,7 @@ func main() {
 	mqClientKey = variables.GetEnv("RABBITMQ_CLIENTKEY", mqClientKey)
 	mqVerify = variables.GetEnvBool("RABBITMQ_VERIFY", mqVerify)
 
-	insightsTokenSecret = variables.GetEnv("INSIGHTS_TOKEN_SECRET", insightsTokenSecret)
-	clearConfigmapCronSched = variables.GetEnv("CLEAR_CONFIGMAP_SCHED", clearConfigmapCronSched)
-	enableCMReconciler = variables.GetEnvBool("ENABLE_CONFIGMAP_RECONCILER", enableNSReconciler)
-	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
-	enableNSReconciler = variables.GetEnvBool("ENABLE_NAMESPACE_RECONCILER", enableNSReconciler)
-	enableWebservice = variables.GetEnvBool("ENABLE_WEBSERVICE", enableWebservice)
-	tokenTargetLabel = variables.GetEnv("TOKEN_TARGET_LABEL", tokenTargetLabel)
-	webservicePort = variables.GetEnv("WEBSERVICE_PORT", webservicePort)
-	//Check burn after reading value from environment
-	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
-		log.Printf("Burn-after-reading enabled via environment variable")
-		burnAfterReading = true
-	}
-	// Check if Dependency Track integration is enabled
-	enableDependencyTrackIntegration = variables.GetEnvBool("ENABLE_DEPENDENCY_TRACK_INTEGRATION", enableDependencyTrackIntegration)
-	dependencyTrackApiEndpoint = variables.GetEnv("DEPENDENCY_TRACK_API_ENDPOINT", dependencyTrackApiEndpoint)
-	dependencyTrackApiKey = variables.GetEnv("DEPENDENCY_TRACK_API_KEY", dependencyTrackApiKey)
-	// Check if Dependency Track integration is enabled - fail if missing required configuration
-	if enableDependencyTrackIntegration && (dependencyTrackApiEndpoint == "" || dependencyTrackApiKey == "") {
-		log.Fatal("Dependency Track integration enabled but missing required configuration")
-	}
-
+	// Configure RMQ.
 	brokerDSN := fmt.Sprintf("amqp://%s:%s@%s", mqUser, mqPass, mqHost)
 	if mqTLS {
 		verify := "verify_none"
@@ -271,6 +280,7 @@ func main() {
 			brokerDSN = fmt.Sprintf("%s&keyfile=%s", brokerDSN, mqClientKey)
 		}
 	}
+
 	mqConfig = mq.Config{
 		ReconnectDelay: time.Duration(rabbitReconnectRetryInterval) * time.Second,
 		Exchanges: mq.Exchanges{
@@ -312,11 +322,35 @@ func main() {
 		DSN: brokerDSN,
 	}
 
+	// Configure metrics server.
+	disableHTTP2 := func(c *tls.Config) {
+		setupLog.Info("disabling http/2")
+		c.NextProtos = []string{"http/1.1"}
+	}
+	tlsOpts := []func(*tls.Config){}
+	if !enableHTTP2 {
+		tlsOpts = append(tlsOpts, disableHTTP2)
+	}
+	metricsServerOptions := server.Options{
+		BindAddress:   metricsAddr,
+		SecureServing: secureMetrics,
+		TLSOpts:       tlsOpts,
+	}
+	if secureMetrics {
+		// FilterProvider is used to protect the metrics endpoint with authn/authz.
+		// These configurations ensure that only authorized users and service accounts
+		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
+	// Configure logging.
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
+	// Configure controller manager.
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		Metrics:                server.Options{BindAddress: metricsAddr},
+		Metrics:                metricsServerOptions,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "ac8a682b.lagoon.sh",
@@ -328,39 +362,34 @@ func main() {
 
 	if enableCMReconciler {
 
-		// First, let's set up post processors
-		postProcessor := postprocess.PostProcessors{}
-
-		if enableDependencyTrackIntegration && dependencyTrackApiEndpoint != "" && dependencyTrackApiKey != "" {
-			log.Printf("Enabling Dependency Track integration")
-			dtTemplates := []string{}
-			// let's work out our templates
-			if dependencyTrackParentProjectNameTemplate != "" {
-				if dependencyTrackRootProjectNameTemplate != "" {
-					dtTemplates = append(dtTemplates, dependencyTrackRootProjectNameTemplate)
-				}
-				dtTemplates = append(dtTemplates, dependencyTrackParentProjectNameTemplate)
-			}
-
-			postProcessor.PostProcessors = append(postProcessor.PostProcessors, &postprocess.DependencyTrackPostProcess{
-				ApiEndpoint: dependencyTrackApiEndpoint,
-				ApiKey:      dependencyTrackApiKey,
-				Templates: postprocess.DependencyTrackTemplates{
-					ParentProjectNameTemplates: dtTemplates,
-					ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
-					VersionTemplate:            dependencyTrackVersionTemplate,
-				},
-			})
+		postProcessors := []postprocess.PostProcessor{
+			insightscore.NewPostProcessor(
+				mqEnable,
+				mqWriteObject,
+			),
+			deptrack.NewDefaultPostProcessor(
+				enableDependencyTrackIntegration,
+				dependencyTrackApiEndpoint,
+				dependencyTrackApiKey,
+				dependencyTrackRootProjectNameTemplate,
+				dependencyTrackParentProjectNameTemplate,
+				dependencyTrackProjectNameTemplate,
+				dependencyTrackVersionTemplate,
+			),
+			deptrack.NewCustomPostProcessor(
+				enableDependencyTrackIntegration,
+				mgr.GetClient(),
+				dependencyTrackRootProjectNameTemplate,
+				dependencyTrackParentProjectNameTemplate,
+				dependencyTrackProjectNameTemplate,
+				dependencyTrackVersionTemplate,
+			),
 		}
 
-		// Set up the controller
 		if err = (&controllers.ConfigMapReconciler{
-			Client:           mgr.GetClient(),
-			Scheme:           mgr.GetScheme(),
-			MessageQWriter:   mqWriteObject,
-			BurnAfterReading: burnAfterReading,
-			WriteToQueue:     mqEnable,
-			PostProcessors:   postProcessor,
+			Client:         mgr.GetClient(),
+			Scheme:         mgr.GetScheme(),
+			PostProcessors: postProcessors,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 			os.Exit(1)
@@ -395,6 +424,21 @@ func main() {
 		log.Printf("Namespace reconciler disabled - skipping")
 	}
 
+	if enableBuildScanning {
+		log.Printf("Build reconciler enabled - starting")
+		if err = (&controllers.BuildReconciler{
+			Client:            mgr.GetClient(),
+			Scheme:            mgr.GetScheme(),
+			InsightsJWTSecret: insightsTokenSecret,
+			ScanImageName:     buildScannerImage,
+		}).SetupWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
+			os.Exit(1)
+		}
+	} else {
+		log.Printf("Build reconciler disabled - skipping")
+	}
+
 	if enableWebservice {
 		log.Println("Enabling JSON endpoint ...")
 		startInsightsEndpoint(mgr)
@@ -418,6 +462,29 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+func mqWriteObject(data []byte) error {
+	messageQ, err := mq.New(mqConfig)
+	if err != nil {
+		//TODO: Log useful data here ...
+		return err
+	}
+	defer messageQ.Close()
+
+	producer, err := messageQ.SyncProducer("lagoon-insights")
+	if err != nil {
+		//log.Error(err, "Unable to write to message broker")
+		return err
+	}
+
+	err = producer.Produce(data)
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func startBurnAfterReadingCron(mgr manager.Manager) {

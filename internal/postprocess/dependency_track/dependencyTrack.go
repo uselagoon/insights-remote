@@ -1,4 +1,4 @@
-package postprocess
+package deptrack
 
 import (
 	"bytes"
@@ -6,14 +6,15 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	dtrack "github.com/DependencyTrack/client-go"
 	"io"
-	"lagoon.sh/insights-remote/internal"
 	"text/template"
 	"time"
+
+	dtrack "github.com/DependencyTrack/client-go"
+	"lagoon.sh/insights-remote/internal"
 )
 
-type DependencyTrackTemplates struct {
+type Templates struct {
 	//RootProjectNameTemplate   string // If a root project is set, all subsequent projects will be children of this project
 	//ParentProjectNameTemplate string
 	ParentProjectNameTemplates []string
@@ -21,17 +22,32 @@ type DependencyTrackTemplates struct {
 	VersionTemplate            string
 }
 
-type DependencyTrackPostProcess struct {
-	ApiEndpoint string
-	ApiKey      string
-	Templates   DependencyTrackTemplates
-}
-
-type dependencyTrackWriteInfo struct {
+type writeInfo struct {
 	//RootName          string
 	ParentProjectNames []string
 	ProjectName        string
 	ProjectVersion     string
+}
+
+func newTemplate(
+	dependencyTrackRootProjectNameTemplate string,
+	dependencyTrackParentProjectNameTemplate string,
+	dependencyTrackProjectNameTemplate string,
+	dependencyTrackVersionTemplate string,
+) Templates {
+	dtTemplates := []string{}
+	if dependencyTrackParentProjectNameTemplate != "" {
+		if dependencyTrackRootProjectNameTemplate != "" {
+			dtTemplates = append(dtTemplates, dependencyTrackRootProjectNameTemplate)
+		}
+		dtTemplates = append(dtTemplates, dependencyTrackParentProjectNameTemplate)
+	}
+
+	return Templates{
+		ParentProjectNameTemplates: dtTemplates,
+		ProjectNameTemplate:        dependencyTrackProjectNameTemplate,
+		VersionTemplate:            dependencyTrackVersionTemplate,
+	}
 }
 
 // This is a helper function to process a template string given a dependencyTrackWriteInfo struct
@@ -50,9 +66,9 @@ func processTemplate(templateString string, info interface{}) (string, error) {
 }
 
 // Given a LagoonInsights message, we do a best effort to extract the necessary information to write to DependencyTrack
-func getWriteInfo(message internal.LagoonInsightsMessage, templates DependencyTrackTemplates) (dependencyTrackWriteInfo, error) {
+func getWriteInfo(message internal.LagoonInsightsMessage, templates Templates) (writeInfo, error) {
 
-	writeinfo := dependencyTrackWriteInfo{}
+	writeinfo := writeInfo{}
 
 	// These are going to be what's available for templating
 	templateValues := struct {
@@ -118,20 +134,73 @@ func getWriteInfo(message internal.LagoonInsightsMessage, templates DependencyTr
 	return writeinfo, nil
 }
 
-func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsightsMessage) error {
-
-	// first, filter the type - we're only interested in sboms
-	if message.Type != internal.InsightsTypeSBOM {
-		return nil
+// This will get or create a project in DependencyTrack
+func getOrCreateProject(client *dtrack.Client, projectName string, parentProject *dtrack.ParentRef, leafProject bool) (dtrack.Project, error) {
+	// let's ensure we have a parent project
+	var project dtrack.Project
+	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, false)
+	if err != nil {
+		return dtrack.Project{}, err
 	}
 
-	// Now we pull out the necessary information to structure the write in terms of project name and parent.
-	writeInfo, err := getWriteInfo(message, d.Templates)
+	// let's create the project if it doesn't exist
+	if len(projects) == 0 {
+
+		// Set up the collection logic depending on whether this is a leaf or not
+
+		collectionLogic := dtrack.CollectionLogicNone
+		if !leafProject {
+			collectionLogic = dtrack.CollectionLogicAggregateDirectChildren
+		}
+
+		project, err = client.Project.Create(context.TODO(), dtrack.Project{
+			Name:            projectName,
+			Active:          true,
+			ParentRef:       parentProject,
+			LastBOMImport:   0,
+			CollectionLogic: &collectionLogic,
+		})
+
+		if err != nil {
+			return dtrack.Project{}, err
+		}
+	} else {
+		// if there's a parent project, we check which project has it
+		if parentProject != nil {
+			for _, project = range projects {
+				// we need to get the full project object to check the parent
+				fullProject, err := client.Project.Get(context.TODO(), project.UUID)
+				if err != nil {
+					return dtrack.Project{}, err
+				}
+				if fullProject.ParentRef != nil && fullProject.ParentRef.UUID == parentProject.UUID {
+					return fullProject, nil
+				}
+			}
+			// if we get here, something is wrong
+			return dtrack.Project{}, fmt.Errorf("parent project %s not found for %s", parentProject.UUID, projectName)
+		}
+		// else we just take the first project
+		project = projects[0]
+	}
+	return project, err
+}
+
+// Helper function to unzip a byte stream
+func unzipByteStream(input io.Reader, output io.Writer) error {
+	gzipReader, err := gzip.NewReader(input)
 	if err != nil {
 		return err
 	}
+	defer gzipReader.Close()
 
-	client, err := dtrack.NewClient(d.ApiEndpoint, dtrack.WithAPIKey(d.ApiKey))
+	_, err = io.Copy(output, gzipReader)
+	return err
+}
+
+func postProcess(message internal.LagoonInsightsMessage, templates Templates, client *dtrack.Client) error {
+	// Now we pull out the necessary information to structure the write in terms of project name and parent.
+	writeInfo, err := getWriteInfo(message, templates)
 	if err != nil {
 		return err
 	}
@@ -139,12 +208,14 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 	// Here we iterate over the parent projects, creating them if/when we need
 	// only the last one gets passed to the upload
 	var project *dtrack.Project
+
 	for _, projectName := range writeInfo.ParentProjectNames {
 		var parentRef *dtrack.ParentRef
 		if project != nil {
 			parentRef = &dtrack.ParentRef{UUID: project.UUID}
 		}
-		projectObj, err := d.getOrCreateProject(client, projectName, parentRef)
+
+		projectObj, err := getOrCreateProject(client, projectName, parentRef, false)
 		if err != nil {
 			return err
 		}
@@ -168,12 +239,21 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 		return err
 	}
 
+	// let's build the tags for this project
+	// specifically, we'll see if we have any details about the service type
+	dtrackTags := []dtrack.Tag{}
+	if val, ok := message.Labels["lagoon.sh/environmentType"]; ok {
+		dtrackTags = append(dtrackTags, dtrack.Tag{Name: fmt.Sprintf("lagoon-environmenttype-%v", val)})
+
+	}
+
 	request := dtrack.BOMUploadRequest{
 		ProjectName:    writeInfo.ProjectName,
 		ParentUUID:     &project.UUID,
 		AutoCreate:     true,
 		ProjectVersion: writeInfo.ProjectVersion,
 		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()), //base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
+		ProjectTags:    dtrackTags,
 	}
 
 	uploadToken, err := client.BOM.Upload(context.TODO(), request)
@@ -223,59 +303,4 @@ func (d *DependencyTrackPostProcess) PostProcess(message internal.LagoonInsights
 	case err = <-errChan:
 		return err
 	}
-}
-
-// This will get or create a project in DependencyTrack
-func (d *DependencyTrackPostProcess) getOrCreateProject(client *dtrack.Client, projectName string, parentProject *dtrack.ParentRef) (dtrack.Project, error) {
-	// let's ensure we have a parent project
-	var project dtrack.Project
-	projects, err := client.Project.GetProjectsForName(context.TODO(), projectName, true, false)
-	if err != nil {
-		return dtrack.Project{}, err
-	}
-
-	// let's create the project if it doesn't exist
-	if len(projects) == 0 {
-		project, err = client.Project.Create(context.TODO(), dtrack.Project{
-			Name:          projectName,
-			Active:        true,
-			ParentRef:     parentProject,
-			LastBOMImport: 0,
-		})
-
-		if err != nil {
-			return dtrack.Project{}, err
-		}
-	} else {
-		// if there's a parent project, we check which project has it
-		if parentProject != nil {
-			for _, project = range projects {
-				// we need to get the full project object to check the parent
-				fullProject, err := client.Project.Get(context.TODO(), project.UUID)
-				if err != nil {
-					return dtrack.Project{}, err
-				}
-				if fullProject.ParentRef != nil && fullProject.ParentRef.UUID == parentProject.UUID {
-					return fullProject, nil
-				}
-			}
-			// if we get here, something is wrong
-			return dtrack.Project{}, fmt.Errorf("parent project %s not found for %s", parentProject.UUID, projectName)
-		}
-		// else we just take the first project
-		project = projects[0]
-	}
-	return project, err
-}
-
-// Helper function to unzip a byte stream
-func unzipByteStream(input io.Reader, output io.Writer) error {
-	gzipReader, err := gzip.NewReader(input)
-	if err != nil {
-		return err
-	}
-	defer gzipReader.Close()
-
-	_, err = io.Copy(output, gzipReader)
-	return err
 }

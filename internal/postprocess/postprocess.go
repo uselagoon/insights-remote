@@ -5,9 +5,6 @@ import (
 )
 
 type PostProcessor interface {
+	// PostProcess processes insights. Must be idempotent.
 	PostProcess(message internal.LagoonInsightsMessage) error
-}
-
-type PostProcessors struct {
-	PostProcessors []PostProcessor
 }

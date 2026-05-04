@@ -1,0 +1,5 @@
+ARG UPSTREAM_REPO
+ARG UPSTREAM_TAG
+FROM ${UPSTREAM_REPO:-uselagoon}/broker:${UPSTREAM_TAG:-latest}
+
+COPY broker-tls.conf /etc/rabbitmq/conf.d/15-tls.conf

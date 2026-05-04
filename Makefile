@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 # Image URL to use all building/pushing image targets
 IMG ?= controller:latest
 
@@ -7,6 +9,101 @@ GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
 endif
+
+INGRESS_VERSION=4.9.1
+
+KIND_CLUSTER ?= insights-remote
+KIND_NETWORK ?= insights-remote
+
+TIMEOUT = 30m
+
+KIND_VERSION = v0.27.0
+KUBECTL_VERSION := v1.32.3
+HELM_VERSION := v3.16.1
+GOJQ_VERSION = v0.12.16
+
+HELM = $(realpath ./local-dev/helm)
+KUBECTL = $(realpath ./local-dev/kubectl)
+JQ = $(realpath ./local-dev/jq)
+KIND = $(realpath ./local-dev/kind)
+
+ARCH := $(shell uname | tr '[:upper:]' '[:lower:]')
+
+.PHONY: local-dev/kind
+local-dev/kind:
+ifeq ($(KIND_VERSION), $(shell kind version 2>/dev/null | sed -nE 's/kind (v[0-9.]+).*/\1/p'))
+	$(info linking local kind version $(KIND_VERSION))
+	$(eval KIND = $(realpath $(shell command -v kind)))
+else
+ifneq ($(KIND_VERSION), $(shell ./local-dev/kind version 2>/dev/null | sed -nE 's/kind (v[0-9.]+).*/\1/p'))
+	$(info downloading kind version $(KIND_VERSION) for $(ARCH))
+	mkdir -p local-dev
+	rm local-dev/kind || true
+	curl -sSLo local-dev/kind https://kind.sigs.k8s.io/dl/$(KIND_VERSION)/kind-$(ARCH)-amd64
+	chmod a+x local-dev/kind
+endif
+endif
+
+.PHONY: local-dev/helm
+local-dev/helm:
+ifeq ($(HELM_VERSION), $(shell helm version --short --client 2>/dev/null | sed -nE 's/(v[0-9.]+).*/\1/p'))
+	$(info linking local helm version $(HELM_VERSION))
+	$(eval HELM = $(realpath $(shell command -v helm)))
+else
+ifneq ($(HELM_VERSION), $(shell ./local-dev/helm version --short --client 2>/dev/null | sed -nE 's/(v[0-9.]+).*/\1/p'))
+	$(info downloading helm version $(HELM_VERSION) for $(ARCH))
+	rm local-dev/helm || true
+	curl -sSL https://get.helm.sh/helm-$(HELM_VERSION)-$(ARCH)-amd64.tar.gz | tar -xzC local-dev --strip-components=1 $(ARCH)-amd64/helm
+	chmod a+x local-dev/helm
+endif
+endif
+
+.PHONY: local-dev/jq
+local-dev/jq:
+ifeq ($(GOJQ_VERSION), $(shell gojq -v 2>/dev/null | sed -nE 's/gojq ([0-9.]+).*/v\1/p'))
+	$(info linking local gojq version $(GOJQ_VERSION))
+	$(eval JQ = $(realpath $(shell command -v gojq)))
+else
+ifneq ($(GOJQ_VERSION), $(shell ./local-dev/jq -v 2>/dev/null | sed -nE 's/gojq ([0-9.]+).*/v\1/p'))
+	$(info downloading gojq version $(GOJQ_VERSION) for $(ARCH))
+	mkdir -p local-dev
+	rm local-dev/jq || true
+ifeq ($(ARCH), darwin)
+	TMPDIR=$$(mktemp -d) \
+		&& curl -sSL https://github.com/itchyny/gojq/releases/download/$(GOJQ_VERSION)/gojq_$(GOJQ_VERSION)_$(ARCH)_arm64.zip -o $$TMPDIR/gojq.zip \
+		&& (cd $$TMPDIR && unzip gojq.zip) && cp $$TMPDIR/gojq_$(GOJQ_VERSION)_$(ARCH)_arm64/gojq ./local-dev/jq && rm -rf $$TMPDIR
+else
+	curl -sSL https://github.com/itchyny/gojq/releases/download/$(GOJQ_VERSION)/gojq_$(GOJQ_VERSION)_$(ARCH)_amd64.tar.gz | tar -xzC local-dev --strip-components=1 gojq_$(GOJQ_VERSION)_$(ARCH)_amd64/gojq
+	mv ./local-dev/{go,}jq
+endif
+	chmod a+x local-dev/jq
+endif
+endif
+
+.PHONY: local-dev/kubectl
+local-dev/kubectl:
+ifeq ($(KUBECTL_VERSION), $(shell kubectl version --client 2>/dev/null | grep Client | sed -E 's/Client Version: (v[0-9.]+).*/\1/'))
+	$(info linking local kubectl version $(KUBECTL_VERSION))
+	$(eval KUBECTL = $(realpath $(shell command -v kubectl)))
+else
+ifneq ($(KUBECTL_VERSION), $(shell ./local-dev/kubectl version --client 2>/dev/null | grep Client | sed -E 's/Client Version: (v[0-9.]+).*/\1/'))
+	$(info downloading kubectl version $(KUBECTL_VERSION) for $(ARCH))
+	mkdir -p local-dev
+	rm local-dev/kubectl || true
+	curl -sSLo local-dev/kubectl https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/$(ARCH)/amd64/kubectl
+	chmod a+x local-dev/kubectl
+endif
+endif
+
+.PHONY: local-dev/tools
+local-dev/tools: local-dev/kind local-dev/kubectl local-dev/jq local-dev/helm 
+
+.PHONY: helm/repos
+helm/repos: local-dev/helm
+	# install repo dependencies required by the charts
+	$(HELM) repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+	$(HELM) repo add metallb https://metallb.github.io/metallb
+	$(HELM) repo update
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
@@ -60,22 +157,6 @@ vet: ## Run go vet against code.
 .PHONY: test
 test: manifests generate fmt vet setup-envtest ## Run tests.
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test $$(go list ./... | grep -v /e2e) -coverprofile cover.out
-
-# TODO(user): To use a different vendor for e2e tests, modify the setup under 'tests/e2e'.
-# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
-# CertManager is installed by default; skip with:
-# - CERT_MANAGER_INSTALL_SKIP=true
-.PHONY: test-e2e
-test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	@command -v kind >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
-	@kind get clusters | grep -q 'kind' || { \
-		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
-		exit 1; \
-	}
-	go test ./test/e2e/ -v -ginkgo.v
 
 .PHONY: lint
 lint: golangci-lint ## Run golangci-lint linter
@@ -222,3 +303,113 @@ mv $(1) $(1)-$(3) ;\
 } ;\
 ln -sf $(1)-$(3) $(1)
 endef
+
+.PHONY: create-kind-cluster
+create-kind-cluster: local-dev/tools helm/repos
+	docker network inspect $(KIND_NETWORK) >/dev/null || docker network create $(KIND_NETWORK) \
+		&& export KIND_EXPERIMENTAL_DOCKER_NETWORK=$(KIND_NETWORK) \
+ 		&& $(KIND) create cluster --wait=60s --name=$(KIND_CLUSTER) --config=test-resources/test-suite.kind-config.yaml
+# 	LAGOON_KIND_CIDR_BLOCK=$$(docker network inspect $(KIND_NETWORK) | $(JQ) '.[].Containers[].IPv4Address' | tr -d '"') \
+# 		&& export KIND_NODE_IP=$$(echo $${LAGOON_KIND_CIDR_BLOCK%???} | awk -F'.' '{print $$1,$$2,$$3,240}' OFS='.') \
+#  		&& envsubst < test/e2e/testdata/example-nginx.yaml.tpl > test/e2e/testdata/example-nginx.yaml
+
+# generate-broker-certs will generate a ca, server and client certificate used for the test suite
+.PHONY: generate-broker-certs
+generate-broker-certs:
+	@mkdir -p local-dev/certificates
+	openssl x509 -enddate -noout -in local-dev/certificates/ca.crt > /dev/null 2>&1 || \
+    (openssl genrsa -out local-dev/certificates/ca.key 4096 && \
+	openssl req -x509 -new -nodes -key local-dev/certificates/ca.key -sha256 -days 1826 -out local-dev/certificates/ca.crt -subj '/CN=lagoon Root CA/C=IO/ST=State/L=City/O=lagoon' && \
+    openssl ecparam -name prime256v1 -genkey -noout -out local-dev/certificates/tls.key && \
+	chmod +r local-dev/certificates/tls.key && \
+	echo "subjectAltName = IP:172.17.0.1" > local-dev/certificates/extfile.cnf && \
+	openssl req -new -nodes -out local-dev/certificates/tls.csr -key local-dev/certificates/tls.key -subj '/CN=broker/C=IO/ST=State/L=City/O=lagoon' && \
+    openssl x509 -req -in local-dev/certificates/tls.csr -CA local-dev/certificates/ca.crt -extfile local-dev/certificates/extfile.cnf -CAkey local-dev/certificates/ca.key -CAcreateserial -out local-dev/certificates/tls.crt -days 730 -sha256 && \
+    openssl ecparam -name prime256v1 -genkey -noout -out local-dev/certificates/clienttls.key && \
+	chmod +r local-dev/certificates/clienttls.key && \
+	openssl req -new -nodes -out local-dev/certificates/clienttls.csr -key local-dev/certificates/clienttls.key -subj '/CN=client/C=IO/ST=State/L=City/O=lagoon' && \
+    openssl x509 -req -in local-dev/certificates/clienttls.csr -CA local-dev/certificates/ca.crt -CAkey local-dev/certificates/ca.key -CAcreateserial -out local-dev/certificates/clienttls.crt -days 730 -sha256)
+
+.PHONY: regenerate-broker-certs
+regenerate-broker-certs:
+	@mkdir -p local-dev/certificates
+	@rm local-dev/certificates/ca.key || true && \
+	rm local-dev/certificates/ca.crt || true && \
+	$(MAKE) generate-broker-certs
+
+# Create a kind cluster locally and run the test e2e test suite against it
+.PHONY: kind/test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up locally
+kind/test-e2e: create-kind-cluster install-ingress kind/re-test-e2e
+
+.PHONY: local-kind/test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up locally
+kind/re-test-e2e:
+	export KIND_PATH=$(KIND) && \
+	export KUBECTL_PATH=$(KUBECTL) && \
+	export KIND_CLUSTER=$(KIND_CLUSTER) && \
+	LAGOON_KIND_CIDR_BLOCK=$$(docker network inspect $(KIND_NETWORK) | $(JQ) '.[].Containers[].IPv4Address' | tr -d '"') && \
+	export KIND_NODE_IP=$$(echo $${LAGOON_KIND_CIDR_BLOCK%???} | awk -F'.' '{print $$1,$$2,$$3,240}' OFS='.') && \
+	$(KIND) export kubeconfig --name=$(KIND_CLUSTER) && \
+	$(MAKE) test-e2e
+
+.PHONY: clean
+kind/clean:
+	docker compose down && \
+		$(KIND) delete cluster --name=$(KIND_CLUSTER) && docker network rm $(KIND_NETWORK)
+
+# Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
+.PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up inside github action.
+test-e2e: generate-broker-certs
+	go test ./test/e2e/ -v -ginkgo.v
+
+.PHONY: github/test-e2e
+github/test-e2e: local-dev/tools install-ingress test-e2e
+
+.PHONY: kind/set-kubeconfig
+kind/set-kubeconfig:
+	export KIND_CLUSTER=$(KIND_CLUSTER) && \
+	$(KIND) export kubeconfig --name=$(KIND_CLUSTER)
+
+.PHONY: kind/logs-insights-remote
+kind/logs-insights-remote:
+	export KIND_CLUSTER=$(KIND_CLUSTER) && \
+	$(KIND) export kubeconfig --name=$(KIND_CLUSTER) && \
+	$(KUBECTL) -n insights-remote-system logs -f \
+		$$($(KUBECTL) -n insights-remote-system  get pod -l control-plane=controller-manager -o jsonpath="{.items[0].metadata.name}") \
+		-c manager
+
+.PHONY: install-metallb
+install-metallb:
+	LAGOON_KIND_CIDR_BLOCK=$$(docker network inspect $(KIND_NETWORK) | $(JQ) '.[].Containers[].IPv4Address' | tr -d '"') && \
+	export LAGOON_KIND_NETWORK_RANGE=$$(echo $${LAGOON_KIND_CIDR_BLOCK%???} | awk -F'.' '{print $$1,$$2,$$3,240}' OFS='.')/29 && \
+	$(HELM) upgrade \
+		--install \
+		--create-namespace \
+		--namespace metallb-system  \
+		--wait \
+		--timeout $(TIMEOUT) \
+		--version=v0.13.12 \
+		metallb \
+		metallb/metallb && \
+	$$(envsubst < test-resources/test-suite.metallb-pool.yaml.tpl > test-resources/test-suite.metallb-pool.yaml) && \
+	$(KUBECTL) apply -f test-resources/test-suite.metallb-pool.yaml
+
+# installs ingress-nginx
+.PHONY: install-ingress
+install-ingress: install-metallb
+	$(HELM) upgrade \
+		--install \
+		--create-namespace \
+		--namespace ingress-nginx \
+		--wait \
+		--timeout $(TIMEOUT) \
+		--set controller.allowSnippetAnnotations=true \
+		--set controller.service.type=LoadBalancer \
+		--set controller.service.nodePorts.http=32080 \
+		--set controller.service.nodePorts.https=32443 \
+		--set controller.config.proxy-body-size=0 \
+		--set controller.config.hsts="false" \
+		--set controller.watchIngressWithoutClass=true \
+		--set controller.ingressClassResource.default=true \
+		--version=$(INGRESS_VERSION) \
+		ingress-nginx \
+		ingress-nginx/ingress-nginx

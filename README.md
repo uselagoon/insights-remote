@@ -16,18 +16,20 @@ When a Lagoon project is being built, the build-deploy tool will run -- see [thi
 These files are then added to Kubernetes configmaps that are given the following labels:
 * lagoon.sh/insightsProcessed
   * This label is unset, to ensure it doesn’t exist
-    * It is used by the insights-remote controller to mark an insights configMap has having been processed
-  * lagoon.sh/insightsType=sbom-gz
-    * The “insightsType” is used by the insights-remote service in core to determine what to do with the incoming data.
-  * lagoon.sh/buildName=${LAGOON_BUILD_NAME}
-    * Not currently used by insights, but is useful information to know which build process produced the insights artifact
-  * lagoon.sh/project=${PROJECT}
-    * Explicitly recording the Lagoon project
-    * This information can be gathered from the k8s namespace as well
-  * lagoon.sh/environment=${ENVIRONMENT}
-    * Explicitly recording the Lagoon environment
-  * lagoon.sh/service=${IMAGE_NAME}
-    * This records which service’s container image this insights data was recorded for (eg, nginx, cli, solr, etc.)
+  * It is used by the insights-remote controller to mark an insights configMap has having been processed
+* lagoon.sh/insightsType=sbom-gz
+  * The “insightsType” is used by the insights-remote service in core to determine what to do with the incoming data.
+* lagoon.sh/buildName=${LAGOON_BUILD_NAME}
+  * Not currently used by insights, but is useful information to know which build process produced the insights artifact
+* lagoon.sh/project=${PROJECT}
+  * Explicitly recording the Lagoon project
+  * This information can be gathered from the k8s namespace as well
+* lagoon.sh/environment=${ENVIRONMENT}
+  * Explicitly recording the Lagoon environment
+* lagoon.sh/service=${IMAGE_NAME}
+  * This records which service’s container image this insights data was recorded for (eg, nginx, cli, solr, etc.)
+* core.insights.lagoon.sh/enabled
+  * Disables sending insights to Lagoon Core when `false`
 
 Once the build-deploy tool has created the configMap, the insights-remote controller takes over, specifically [controllers/configmap_controller.go](https://github.com/anchore/syft)
 
@@ -38,6 +40,9 @@ This is a conceptually very simple controller, as far as Kubernetes controllers 
    * If pushing to the broker fails, we add a “lagoon.sh/insightsWriteDeferred” label with a time-after-which we should retry (5 minutes).
    * This insightsWriteDeferred label is used by the “insights deferred clear cron” [process](main.go#L366-L414) which simply removes the label after the appropriate date/time. Removing the label kicks off the process from point (1) above again.
 3. Once this data has been pushed to the broker, the controller will label the configMap with “lagoon.sh/insightsProcessed”, as well as the date/time it was processed.
+
+Lagoon Core insights can be disabled by adding the following environment variables to the Lagoon API:
+ * LAGOON_FEATURE_FLAG_INSIGHTS_CORE_ENABLED=false
 
 If the controller has been started with the `burn-after-reading` option (via `--burn-after-reading=true` or setting the environment variable `BURN_AFTER_READING=TRUE`), then any insights configMap that has a “lagoon.sh/insightsProcessed” label will be removed.
 
@@ -106,14 +111,28 @@ These two routes simply unmarshal the data, use the authorization header to set 
 
 Insights remote allows integration into [Dependency Track](https://docs.dependencytrack.org/) - specifically, the uploading of SBOMS.
 
-Once a build is complete and the SBOM has been sent to Insights Core, a post-processing step is triggered and pushes the SBOM to Dependency Track.
+Once a build is complete and the SBOM has been sent to Insights Core, a post-processing step is triggered and pushes the SBOM to Dependency Track. There are two available post-processors: 1) A default integration which sends all insights to a central instance and 2) A custom integration configured via Lagoon API env vars.
 
 Dependency track integration is enabled by starting Insights Remote with the appropriate flags or the following environment variables in the insights-remote deployment:
 * ENABLE_DEPENDENCY_TRACK_INTEGRATION=true
+
+### Default Post-Processor
+
+The default integration is enabled by starting Insights Remote with the appropriate flags or the following environment variables in the insights-remote deployment:
 * DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
 * DEPENDENCY_TRACK_API_KEY=your-api-key
 
-# Templates
+### Custom Post-Processor
+
+The custom integration is enabled by adding the following environment variables in the Lagoon API:
+* LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
+* LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_KEY=your-api-key
+
+### API Key
+
+An API key for Dependency Track is required to [access the API](https://docs.dependencytrack.org/integrations/rest-api/). The minimum permissions required are `BOM_UPLOAD`, `PORTFOLIO_MANAGEMENT`, and `VIEW_PORTFOLIO`.
+
+### Templates
 
 The Dependency Track integration allows a fair amount of customization in how the SBOM is uploaded and displayed hierarchically in Dependency Track.
 This is accomplished by setting templates for the Project hierarchy.
@@ -131,4 +150,3 @@ The following variables are available for use in the templates:
 - .EnvironmentType
 
 These are currently set by overriding the arguments in the insights-remote deployment.
-
