@@ -25,7 +25,7 @@ These files are then added to Kubernetes configmaps that are given the following
 * lagoon.sh/service=${IMAGE_NAME}
   * This records which service’s container image this insights data was recorded for (eg, nginx, cli, solr, etc.)
 * core.insights.lagoon.sh/enabled
-  * Disables sending insights to Lagoon Core when `false`
+  * Enables sending insights to Lagoon Core when `true`
 
 Once the build-deploy tool has created the configMap, the insights-remote controller takes over, specifically [controllers/configmap_controller.go](https://github.com/anchore/syft)
 
@@ -37,8 +37,8 @@ This is a conceptually very simple controller, as far as Kubernetes controllers 
    * This insightsWriteDeferred label is used by the “insights deferred clear cron” [process](main.go#L366-L414) which simply removes the label after the appropriate date/time. Removing the label kicks off the process from point (1) above again.
 3. Once this data has been pushed to the broker, the controller will label the configMap with “lagoon.sh/insightsProcessed”, as well as the date/time it was processed.
 
-Lagoon Core insights can be disabled by adding the following environment variables to the Lagoon API:
- * LAGOON_FEATURE_FLAG_INSIGHTS_CORE_ENABLED=false
+Lagoon Core insights can be enabled by adding the following environment variables to the Lagoon API:
+ * LAGOON_FEATURE_FLAG_INSIGHTS_CORE_ENABLED=true
 
 If the controller has been started with the `burn-after-reading` option (via `--burn-after-reading=true` or setting the environment variable `BURN_AFTER_READING=TRUE`), then any insights configMap that has a “lagoon.sh/insightsProcessed” label will be removed.
 
