@@ -130,7 +130,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	if retryPostprocessing {
-		//In this case what we want to do is defer the processing to a couple minutes from now
+		// In this case what we want to do is defer the processing to a couple minutes from now
 		err := cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, minutesFromNow(5))
 
 		if err != nil {

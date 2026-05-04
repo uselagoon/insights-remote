@@ -474,7 +474,7 @@ func mqWriteObject(data []byte) error {
 
 	producer, err := messageQ.SyncProducer("lagoon-insights")
 	if err != nil {
-		//log.Error(err, "Unable to write to message broker")
+		// log.Error(err, "Unable to write to message broker")
 		return err
 	}
 
@@ -511,9 +511,9 @@ func startBurnAfterReadingCron(mgr manager.Manager) {
 		}
 
 		for _, x := range configMapList.Items {
-			//check the annotations
+			// check the annotations
 			if _, okay := x.Annotations[internal.InsightsUpdatedAnnotationLabel]; okay {
-				//grab the build this is linked to
+				// grab the build this is linked to
 				buildName := ""
 				if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
 					buildName = fmt.Sprintf(" (build: '%v')", val)
@@ -554,7 +554,7 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 		}
 
 		for _, x := range configMapList.Items {
-			//check the labels
+			// check the labels
 			if writeDeferredVal, okay := x.Labels[internal.InsightsWriteDeferred]; okay {
 				writeDeferredValTS, _ := strconv.ParseInt(writeDeferredVal, 10, 32)
 				parsed := time.Unix(writeDeferredValTS, 0)
