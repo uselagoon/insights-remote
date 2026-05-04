@@ -28,7 +28,7 @@ func NewPostProcessor(
 }
 
 func (p *PostProcess) Label() string {
-	return "postproc.core.insights.lagoon.sh/insights-core-handler"
+	return "core.insights.lagoon.sh/status"
 }
 
 func (p *PostProcess) PostProcess(message internal.LagoonInsightsMessage) error {

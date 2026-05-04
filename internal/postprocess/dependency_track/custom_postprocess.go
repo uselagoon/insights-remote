@@ -77,5 +77,5 @@ func (d *CustomPostProcess) PostProcess(message internal.LagoonInsightsMessage) 
 }
 
 func (p *CustomPostProcess) Label() string {
-	return "postproc.core.insights.lagoon.sh/custom-deptrack"
+	return "dependencytrack.insights.lagoon.sh/custom-status"
 }
