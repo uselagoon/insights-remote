@@ -45,7 +45,7 @@ type ConfigMapReconciler struct {
 	MaxNumberOfRetries    int
 }
 
-const postProcRetriesAnnotationKey = "core.insights.lagoon.sh/postproc-retries"
+const postProcRetriesAnnotationKey = "insights.lagoon.sh/retries"
 const maxRetryExceededLabelKey = "insights.lagoon.sh/max-retry-exceeded"
 const successfulPostProcessRun = "success"
 const failedPostProcessRun = "failure"

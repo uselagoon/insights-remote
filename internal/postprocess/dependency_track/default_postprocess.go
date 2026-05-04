@@ -58,5 +58,5 @@ func (d *DefaultPostProcess) PostProcess(message internal.LagoonInsightsMessage)
 }
 
 func (p *DefaultPostProcess) Label() string {
-	return "postproc.core.insights.lagoon.sh/default-deptrack"
+	return "dependencytrack.insights.lagoon.sh/default-status"
 }
