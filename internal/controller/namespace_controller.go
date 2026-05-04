@@ -104,7 +104,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		if deleteSecretMessage != "" {
 			log.Info(fmt.Sprintf("Removing secret '%v':'%v' - %v", ns.GetName(), v.Name, deleteSecretMessage))
-				err = r.Delete(ctx, &v)
+			err = r.Delete(ctx, &v)
 			if err != nil {
 				log.Error(err, "Unable to delete secret")
 				return ctrl.Result{}, err
