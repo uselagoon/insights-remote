@@ -252,7 +252,7 @@ func postProcess(message internal.LagoonInsightsMessage, templates Templates, cl
 		ParentUUID:     &project.UUID,
 		AutoCreate:     true,
 		ProjectVersion: writeInfo.ProjectVersion,
-		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()), // base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
+		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
 		ProjectTags:    dtrackTags,
 	}
 

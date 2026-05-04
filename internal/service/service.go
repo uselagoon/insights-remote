@@ -127,7 +127,7 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 		return
 	}
 
-	// let's force our facts to get pushed to the right place
+	// let's force our problems to get pushed to the right place
 	lid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{

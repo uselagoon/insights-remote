@@ -242,7 +242,6 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 	for _, i := range podlist.Items {
 
 		log.Log.Info("Looking at following image by name: " + i.Name)
-		// if i.Name != newScannerName { // Then we have a rogue pod
 		err = r.Client.Delete(ctx, &i)
 		if err != nil {
 			return err
