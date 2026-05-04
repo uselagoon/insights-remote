@@ -27,6 +27,6 @@ import (
 // Run e2e tests using the Ginkgo runner.
 func TestE2E(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	fmt.Fprintf(ginkgo.GinkgoWriter, "Starting insights-remote suite\n")
+	_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Starting insights-remote suite\n")
 	ginkgo.RunSpecs(t, "e2e suite")
 }

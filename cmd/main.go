@@ -501,7 +501,7 @@ func mqWriteObject(data []byte) error {
 
 func startBurnAfterReadingCron(mgr manager.Manager) {
 	c := cron.New()
-	c.AddFunc(clearConfigmapCronSched, func() {
+	if _, err := c.AddFunc(clearConfigmapCronSched, func() {
 		client := mgr.GetClient()
 		configMapList := &corev1.ConfigMapList{}
 		insightsProcessedRequirement, err := labels.NewRequirement(internal.InsightsLabel, selection.Exists, []string{})
@@ -537,13 +537,15 @@ func startBurnAfterReadingCron(mgr manager.Manager) {
 				}
 			}
 		}
-	})
+	}); err != nil {
+		log.Printf("Error setting up burn-after-reading cron: %v", err)
+	}
 	c.Start()
 }
 
 func startInsightsDeferredClearCron(mgr manager.Manager) {
 	c := cron.New()
-	c.AddFunc(clearConfigmapCronSched, func() {
+	if _, err := c.AddFunc(clearConfigmapCronSched, func() {
 
 		client := mgr.GetClient()
 		configMapList := &corev1.ConfigMapList{}
@@ -587,11 +589,17 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 				}
 			}
 		}
-	})
+	}); err != nil {
+		log.Printf("Error setting up deferred clear cron: %v", err)
+	}
 	c.Start()
 }
 
 func startInsightsEndpoint(mgr manager.Manager) {
 	router := service.SetupRouter(insightsTokenSecret, mqWriteObject, mqEnable)
-	go router.Run(fmt.Sprintf(":%v", webservicePort))
+	go func() {
+		if err := router.Run(fmt.Sprintf(":%v", webservicePort)); err != nil {
+			log.Printf("Error running insights endpoint: %v", err)
+		}
+	}()
 }
