@@ -192,7 +192,9 @@ func unzipByteStream(input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer gzipReader.Close()
+	defer func() {
+		_ = gzipReader.Close()
+	}()
 
 	_, err = io.Copy(output, gzipReader)
 	return err

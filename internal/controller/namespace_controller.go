@@ -77,7 +77,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		Namespace:     ns.GetName(),
 	}
 
-	err = r.Client.List(ctx, secretList, &listOptions)
+	err = r.List(ctx, secretList, &listOptions)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -104,7 +104,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 		}
 		if deleteSecretMessage != "" {
 			log.Info(fmt.Sprintf("Removing secret '%v':'%v' - %v", ns.GetName(), v.Name, deleteSecretMessage))
-			err = r.Client.Delete(ctx, &v)
+			err = r.Delete(ctx, &v)
 			if err != nil {
 				log.Error(err, "Unable to delete secret")
 				return ctrl.Result{}, err
@@ -153,7 +153,7 @@ func (r *NamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				"INSIGHTS_TOKEN": []byte(jwt),
 			},
 		}
-		err = r.Client.Create(ctx, &newSecret)
+		err = r.Create(ctx, &newSecret)
 		if err != nil {
 			return ctrl.Result{}, err
 		}

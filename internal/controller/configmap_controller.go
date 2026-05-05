@@ -126,7 +126,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 
 	// Here we run the post processors
 	retryPostprocessors := []string{}
-	completePostProcessors := []string{}
+	// completePostProcessors := []string{}
 
 	var numberOfRetries int64
 
@@ -146,7 +146,7 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 			// we skip if the processor has been successful in the past
 			if val, ok := insightsMessage.Annotations[processor.Label()]; ok {
 				if val == successfulPostProcessRun {
-					completePostProcessors = append(completePostProcessors, processor.Label())
+					// completePostProcessors = append(completePostProcessors, processor.Label())
 					continue
 				}
 			}
@@ -162,14 +162,14 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 				updateAnnotations[fmt.Sprintf("%v-error", processor.Label())] = err.Error()
 				continue
 			}
-			completePostProcessors = append(completePostProcessors, processor.Label())
+			// completePostProcessors = append(completePostProcessors, processor.Label())
 			updateAnnotations[processor.Label()] = successfulPostProcessRun
 		}
 	}
 
 	updateLabels := map[string]string{}
 	if len(retryPostprocessors) > 0 { // There was a problem writing these data to one of the endpoints
-		//In this case what we want to do is defer the processing to a couple minutes from now
+		// In this case what we want to do is defer the processing to a couple minutes from now
 		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(r.MinutesBetweenRetries)
 		numberOfRetries += 1
 
@@ -226,16 +226,10 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 func insightMaxRetryPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(event event.CreateEvent) bool {
-			if labelExists(maxRetryExceededLabelKey, event.Object) {
-				return false
-			}
-			return true
+			return !labelExists(maxRetryExceededLabelKey, event.Object)
 		},
 		UpdateFunc: func(event event.UpdateEvent) bool {
-			if labelExists(maxRetryExceededLabelKey, event.ObjectNew) {
-				return false
-			}
-			return true
+			return !labelExists(maxRetryExceededLabelKey, event.ObjectNew)
 		},
 		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
 			return false
