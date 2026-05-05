@@ -17,10 +17,9 @@ limitations under the License.
 package e2e
 
 import (
+	"flag"
 	"fmt"
 	"testing"
-
-	"flag"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
