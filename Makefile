@@ -370,7 +370,8 @@ test-e2e: generate-broker-certs
 	go test ./test/e2e/ -v -ginkgo.v -e2e
 
 .PHONY: github/test-e2e
-github/test-e2e: local-dev/tools install-ingress test-e2e
+github/test-e2e: local-dev/tools install-ingress
+	$(MAKE) test-e2e SKIP_KUBECONTEXT_CHECK=true
 
 .PHONY: kind/set-kubeconfig
 kind/set-kubeconfig:
