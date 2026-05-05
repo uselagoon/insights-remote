@@ -7,4 +7,5 @@ import (
 type PostProcessor interface {
 	// PostProcess processes insights. Must be idempotent.
 	PostProcess(message internal.LagoonInsightsMessage) error
+	Label() string
 }

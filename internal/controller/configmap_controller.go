@@ -39,9 +39,16 @@ import (
 // ConfigMapReconciler reconciles a ConfigMap object
 type ConfigMapReconciler struct {
 	client.Client
-	Scheme         *runtime.Scheme
-	PostProcessors []postprocess.PostProcessor
+	Scheme                *runtime.Scheme
+	PostProcessors        []postprocess.PostProcessor
+	MinutesBetweenRetries int
+	MaxNumberOfRetries    int
 }
+
+const postProcRetriesAnnotationKey = "insights.lagoon.sh/retries"
+const maxRetryExceededLabelKey = "insights.lagoon.sh/max-retry-exceeded"
+const successfulPostProcessRun = "success"
+const failedPostProcessRun = "failure"
 
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 
@@ -118,30 +125,67 @@ func (r *ConfigMapReconciler) Reconcile(ctx context.Context, req ctrl.Request) (
 	}
 
 	// Here we run the post processors
-	retryPostprocessing := false
+	retryPostprocessors := []string{}
+	completePostProcessors := []string{}
+
+	var numberOfRetries int64
+
+	if retriesAnnotation, ok := insightsMessage.Annotations[postProcRetriesAnnotationKey]; ok {
+		var err error
+		numberOfRetries, err = strconv.ParseInt(retriesAnnotation, 10, 64)
+		if err != nil {
+			numberOfRetries = 0
+			log.Info(fmt.Sprintf("unable to read insights %v label - setting to / assuming first run. Error: %v\n", postProcRetriesAnnotationKey, err.Error()))
+		}
+	}
+
+	updateAnnotations := map[string]string{}
 	for _, processor := range r.PostProcessors {
 		if processor != nil {
+
+			// we skip if the processor has been successful in the past
+			if val, ok := insightsMessage.Annotations[processor.Label()]; ok {
+				if val == successfulPostProcessRun {
+					completePostProcessors = append(completePostProcessors, processor.Label())
+					continue
+				}
+			}
+
 			err := processor.PostProcess(insightsMessage)
 			if err != nil {
 				log.Error(err, "Post processor failed")
-				retryPostprocessing = true
+				// We line this up for retrying the next time around
+				retryPostprocessors = append(retryPostprocessors, processor.Label())
+				// let's update our annotations to set this as a failure
+				updateAnnotations[processor.Label()] = failedPostProcessRun
+				// We'll also want to set or update an annotation telling us why it failed
+				updateAnnotations[fmt.Sprintf("%v-error", processor.Label())] = err.Error()
+				continue
 			}
+			completePostProcessors = append(completePostProcessors, processor.Label())
+			updateAnnotations[processor.Label()] = successfulPostProcessRun
 		}
 	}
 
-	if retryPostprocessing {
-		// In this case what we want to do is defer the processing to a couple minutes from now
-		err := cmlib.LabelCM(ctx, r.Client, configMap, internal.InsightsWriteDeferred, minutesFromNow(5))
+	updateLabels := map[string]string{}
+	if len(retryPostprocessors) > 0 { // There was a problem writing these data to one of the endpoints
+		//In this case what we want to do is defer the processing to a couple minutes from now
+		updateLabels[internal.InsightsWriteDeferred] = minutesFromNow(r.MinutesBetweenRetries)
+		numberOfRetries += 1
 
-		if err != nil {
-			log.Error(err, "Unable to update configmap")
-			return ctrl.Result{}, err
+		if numberOfRetries > int64(r.MaxNumberOfRetries) { // We have now reached the end of the line.
+			updateLabels[maxRetryExceededLabelKey] = "MAX_RETRY_EXCEEDED"
+			log.Info(fmt.Sprintf("Max post-processor retries (%v) exceeded for configmap %v/%v - no further retries will be attempted", r.MaxNumberOfRetries, configMap.Namespace, configMap.Name))
 		}
 
-		return ctrl.Result{}, err
+	} else { // we've managed to get everything stowed away, let's mark this as done.
+		updateAnnotations[internal.InsightsUpdatedAnnotationLabel] = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	err := cmlib.AnnotateCM(ctx, r.Client, configMap, internal.InsightsUpdatedAnnotationLabel, time.Now().UTC().Format(time.RFC3339))
+	// let's write the number of retries either way
+	updateAnnotations[postProcRetriesAnnotationKey] = strconv.FormatInt(numberOfRetries, 10)
+
+	err := cmlib.BatchUpdateCM(ctx, r.Client, configMap, updateLabels, updateAnnotations)
 
 	if err != nil {
 		log.Error(err, "Unable to update configmap")
@@ -177,6 +221,28 @@ func insightLabelsOnlyPredicate() predicate.Predicate {
 	}
 }
 
+// Let's set up a predicate that filters out anything without a particular label AND
+// we don't care about delete events
+func insightMaxRetryPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		CreateFunc: func(event event.CreateEvent) bool {
+			if labelExists(maxRetryExceededLabelKey, event.Object) {
+				return false
+			}
+			return true
+		},
+		UpdateFunc: func(event event.UpdateEvent) bool {
+			if labelExists(maxRetryExceededLabelKey, event.ObjectNew) {
+				return false
+			}
+			return true
+		},
+		DeleteFunc: func(deleteEvent event.DeleteEvent) bool {
+			return false
+		},
+	}
+}
+
 func labelExists(label string, event client.Object) bool {
 	for k, v := range event.GetLabels() {
 		if k == label || v == label {
@@ -201,6 +267,7 @@ func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.ConfigMap{}).
 		WithEventFilter(insightLabelsOnlyPredicate()).
+		WithEventFilter(insightMaxRetryPredicate()).
 		Complete(r)
 }
 

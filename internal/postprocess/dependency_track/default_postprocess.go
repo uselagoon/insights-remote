@@ -56,3 +56,7 @@ func (d *DefaultPostProcess) PostProcess(message internal.LagoonInsightsMessage)
 	err = postProcess(message, d.Templates, client)
 	return err
 }
+
+func (p *DefaultPostProcess) Label() string {
+	return "dependencytrack.insights.lagoon.sh/default-status"
+}

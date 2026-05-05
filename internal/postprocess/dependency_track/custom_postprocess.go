@@ -75,3 +75,7 @@ func (d *CustomPostProcess) PostProcess(message internal.LagoonInsightsMessage) 
 	err = postProcess(message, d.Templates, client)
 	return err
 }
+
+func (p *CustomPostProcess) Label() string {
+	return "dependencytrack.insights.lagoon.sh/custom-status"
+}
