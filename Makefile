@@ -29,6 +29,8 @@ KIND = $(realpath ./local-dev/kind)
 
 ARCH := $(shell uname | tr '[:upper:]' '[:lower:]')
 
+SKIP_KUBECONTEXT_CHECK = false
+
 .PHONY: local-dev/kind
 local-dev/kind:
 ifeq ($(KIND_VERSION), $(shell kind version 2>/dev/null | sed -nE 's/kind (v[0-9.]+).*/\1/p'))
@@ -349,7 +351,7 @@ kind/re-test-e2e:
 	LAGOON_KIND_CIDR_BLOCK=$$(docker network inspect $(KIND_NETWORK) | $(JQ) '.[].Containers[].IPv4Address' | tr -d '"') && \
 	export KIND_NODE_IP=$$(echo $${LAGOON_KIND_CIDR_BLOCK%???} | awk -F'.' '{print $$1,$$2,$$3,240}' OFS='.') && \
 	$(KIND) export kubeconfig --name=$(KIND_CLUSTER) && \
-	$(MAKE) test-e2e
+	$(MAKE) test-e2e SKIP_KUBECONTEXT_CHECK=true
 
 .PHONY: clean
 kind/clean:
@@ -359,7 +361,13 @@ kind/clean:
 # Utilize Kind or modify the e2e tests to load the image locally, enabling compatibility with other vendors.
 .PHONY: test-e2e  # Run the e2e tests against a Kind k8s instance that is spun up inside github action.
 test-e2e: generate-broker-certs
-	go test ./test/e2e/ -v -ginkgo.v
+	@if [ $(SKIP_KUBECONTEXT_CHECK) = false ]; then \
+		echo "==================================================="; \
+		echo "WARNING: You are targeting $$($(KUBECTL) config current-context)"; \
+		echo "==================================================="; \
+		echo -n "Do you want to continue? [y/N] " && read ans && if [[ $${ans:-'N'} = 'y' ]]; then echo -n ""; else exit 1; fi \
+	fi
+	go test ./test/e2e/ -v -ginkgo.v -e2e
 
 .PHONY: github/test-e2e
 github/test-e2e: local-dev/tools install-ingress test-e2e

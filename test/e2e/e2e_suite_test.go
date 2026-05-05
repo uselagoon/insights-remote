@@ -27,10 +27,10 @@ import (
 )
 
 // Run e2e tests using the Ginkgo runner.
-var runIntegration = flag.Bool("e2e", false, "run e2e tests")
+var runE2Etests = flag.Bool("e2e", false, "run e2e tests")
 
 func TestE2E(t *testing.T) {
-	if !*runIntegration {
+	if !*runE2Etests {
 		t.Skip("Skipping e2e tests; use -e2e to run them")
 	}
 	gomega.RegisterFailHandler(ginkgo.Fail)
