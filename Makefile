@@ -365,7 +365,7 @@ test-e2e: generate-broker-certs
 		echo "==================================================="; \
 		echo "WARNING: You are targeting $$($(KUBECTL) config current-context)"; \
 		echo "==================================================="; \
-		echo -n "Do you want to continue? [y/N] " && read ans && if [[ $${ans:-'N'} = 'y' ]]; then echo -n ""; else exit 1; fi \
+		echo -n "Do you want to continue? [y/N] " && read ans && if [[ $${ans:-'N'} = 'y' ]]; then echo -n ""; else exit 1; fi; \
 	fi
 	go test ./test/e2e/ -v -ginkgo.v -e2e
 
