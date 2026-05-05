@@ -20,12 +20,19 @@ import (
 	"fmt"
 	"testing"
 
+	"flag"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
 
 // Run e2e tests using the Ginkgo runner.
+var runIntegration = flag.Bool("e2e", false, "run e2e tests")
+
 func TestE2E(t *testing.T) {
+	if !*runIntegration {
+		t.Skip("Skipping e2e tests; use -e2e to run them")
+	}
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Starting insights-remote suite\n")
 	ginkgo.RunSpecs(t, "e2e suite")
