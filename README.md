@@ -127,6 +127,7 @@ The default integration is enabled by starting Insights Remote with the appropri
 The custom integration is enabled by adding the following environment variables in the Lagoon API:
 * LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_ENDPOINT=https://dependency-track.example.com
 * LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_API_KEY=your-api-key
+* LAGOON_FEATURE_FLAG_INSIGHTS_DEPENDENCY_TRACK_PUSH_PROD_ONLY=true|false — optional; overrides the global `--dependency-track-push-prod-only` flag for this namespace's custom DT instance. When absent, the global default applies.
 
 ### API Key
 
