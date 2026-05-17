@@ -94,7 +94,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		// Deploy scan pod
-		err = r.Client.Create(ctx, podspec)
+		err = r.Create(ctx, podspec)
 		if err != nil {
 			logger.Error(err, "Couldn't create pod")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -108,7 +108,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		buildPod.SetLabels(labels)
 		err = r.Update(ctx, &buildPod)
 		if err != nil {
-			logger.Error(err, fmt.Sprintf("Unable to update pod labels: %v", req.NamespacedName.String()))
+			logger.Error(err, fmt.Sprintf("Unable to update pod labels: %v", req.String()))
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 	}
@@ -124,11 +124,11 @@ func extractDockerHost(buildPod *corev1.Pod) (string, error) {
 				return val, nil
 			}
 
-			return "", errors.New(fmt.Sprintf("Empty %s annotation found on build pod", dockerHostAnnotationKey))
+			return "", fmt.Errorf("empty %s annotation found on build pod", dockerHostAnnotationKey)
 		}
 	}
 
-	return "", errors.New(fmt.Sprintf("No %s annotation found on build pod", dockerHostAnnotationKey))
+	return "", fmt.Errorf("no %s annotation found on build pod", dockerHostAnnotationKey)
 }
 
 // scanDeployments will look at all the deployments in a namespace and
@@ -160,7 +160,7 @@ func (r *BuildReconciler) scanDeployments(ctx context.Context, req ctrl.Request,
 func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, dockerhost string) (*corev1.Pod, error) {
 
 	if len(images) == 0 {
-		return nil, errors.New("No images to scan")
+		return nil, errors.New("no images to scan")
 	}
 
 	// Define PodSpec
@@ -233,7 +233,7 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 	podlist := &corev1.PodList{}
 	ls := client.MatchingLabels(imageScanPodLabels())
 	ns := client.InNamespace(namespace)
-	err := r.Client.List(ctx, podlist, ns, ls)
+	err := r.List(ctx, podlist, ns, ls)
 	if err != nil {
 		log.Log.Info("Issue generating existing scan list")
 		return err
@@ -242,8 +242,7 @@ func (r *BuildReconciler) killExistingScans(ctx context.Context, newScannerName 
 	for _, i := range podlist.Items {
 
 		log.Log.Info("Looking at following image by name: " + i.Name)
-		//if i.Name != newScannerName { // Then we have a rogue pod
-		err = r.Client.Delete(ctx, &i)
+		err = r.Delete(ctx, &i)
 		if err != nil {
 			return err
 		}
@@ -294,12 +293,12 @@ func successfulBuildPodsPredicate() predicate.Predicate {
 			labels := event.ObjectNew.GetLabels()
 			_, err := getValueFromMap(labels, "lagoon.sh/buildName")
 			if err != nil {
-				return false //this isn't a build pod
+				return false // this isn't a build pod
 			}
 
 			_, err = getValueFromMap(labels, insightsScanPodLabel)
 			if err == nil {
-				return false //this isn't a build pod
+				return false // this isn't a build pod
 			}
 
 			val, err := getValueFromMap(labels, insightsBuildPodScannedLabel)

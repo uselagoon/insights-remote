@@ -78,6 +78,8 @@ var (
 	insightsTokenSecret                      string
 	enableNSReconciler                       bool
 	enableCMReconciler                       bool
+	cmReconcilerMaxRetries                   int
+	cmReconcilerMinutesBetweenRetries        int
 	enableInsightDeferred                    bool //TODO: Better names for this
 	enableWebservice                         bool
 	tokenTargetLabel                         string
@@ -120,6 +122,10 @@ func main() {
 		"The cron schedule specifying how often insightType configmaps should be cleared (env var: CLEAR_CONFIGMAP_SCHED).")
 	flag.BoolVar(&enableInsightDeferred, "enable-insights-deferred", false,
 		"Delete insights after certain time (env var: ENABLE_INSIGHTS_DEFERRED).")
+	flag.IntVar(&cmReconcilerMaxRetries, "configmap-reconciler-max-retries", 3,
+		"The number of times the configmap reconciler will attempt to run a post-processor before failing")
+	flag.IntVar(&cmReconcilerMinutesBetweenRetries, "configmap-reconciler-mins-between-retries", 3,
+		"The number of minutes the configmap reconciler will wait before attempting a rerun on a failed post-processor")
 
 	// Insights shipping: web service.
 	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
@@ -234,6 +240,10 @@ func main() {
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
 	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
 	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
+	// Controlling CM post-processor retries
+	cmReconcilerMaxRetries = variables.GetEnvInt("CONFIGMAP_RECONCILER_MAX_RETRIES", cmReconcilerMaxRetries)
+	cmReconcilerMinutesBetweenRetries = variables.GetEnvInt("CONFIGMAP_RECONCILER_MINS_BETWEEN_RETRIES", cmReconcilerMinutesBetweenRetries)
 
 	// Check burn after reading value from environment
 	if variables.GetEnv("BURN_AFTER_READING", "FALSE") == "TRUE" {
@@ -391,9 +401,11 @@ func main() {
 		}
 
 		if err = (&controllers.ConfigMapReconciler{
-			Client:         mgr.GetClient(),
-			Scheme:         mgr.GetScheme(),
-			PostProcessors: postProcessors,
+			Client:                mgr.GetClient(),
+			Scheme:                mgr.GetScheme(),
+			PostProcessors:        postProcessors,
+			MinutesBetweenRetries: cmReconcilerMinutesBetweenRetries,
+			MaxNumberOfRetries:    cmReconcilerMaxRetries,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 			os.Exit(1)
@@ -478,7 +490,7 @@ func mqWriteObject(data []byte) error {
 
 	producer, err := messageQ.SyncProducer("lagoon-insights")
 	if err != nil {
-		//log.Error(err, "Unable to write to message broker")
+		// log.Error(err, "Unable to write to message broker")
 		return err
 	}
 
@@ -493,7 +505,7 @@ func mqWriteObject(data []byte) error {
 
 func startBurnAfterReadingCron(mgr manager.Manager) {
 	c := cron.New()
-	c.AddFunc(clearConfigmapCronSched, func() {
+	if _, err := c.AddFunc(clearConfigmapCronSched, func() {
 		client := mgr.GetClient()
 		configMapList := &corev1.ConfigMapList{}
 		insightsProcessedRequirement, err := labels.NewRequirement(internal.InsightsLabel, selection.Exists, []string{})
@@ -515,9 +527,9 @@ func startBurnAfterReadingCron(mgr manager.Manager) {
 		}
 
 		for _, x := range configMapList.Items {
-			//check the annotations
+			// check the annotations
 			if _, okay := x.Annotations[internal.InsightsUpdatedAnnotationLabel]; okay {
-				//grab the build this is linked to
+				// grab the build this is linked to
 				buildName := ""
 				if val, ok := x.Labels["lagoon.sh/buildName"]; ok {
 					buildName = fmt.Sprintf(" (build: '%v')", val)
@@ -529,13 +541,15 @@ func startBurnAfterReadingCron(mgr manager.Manager) {
 				}
 			}
 		}
-	})
+	}); err != nil {
+		log.Printf("Error setting up burn-after-reading cron: %v", err)
+	}
 	c.Start()
 }
 
 func startInsightsDeferredClearCron(mgr manager.Manager) {
 	c := cron.New()
-	c.AddFunc(clearConfigmapCronSched, func() {
+	if _, err := c.AddFunc(clearConfigmapCronSched, func() {
 
 		client := mgr.GetClient()
 		configMapList := &corev1.ConfigMapList{}
@@ -558,7 +572,7 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 		}
 
 		for _, x := range configMapList.Items {
-			//check the labels
+			// check the labels
 			if writeDeferredVal, okay := x.Labels[internal.InsightsWriteDeferred]; okay {
 				writeDeferredValTS, _ := strconv.ParseInt(writeDeferredVal, 10, 32)
 				parsed := time.Unix(writeDeferredValTS, 0)
@@ -579,11 +593,17 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 				}
 			}
 		}
-	})
+	}); err != nil {
+		log.Printf("Error setting up deferred clear cron: %v", err)
+	}
 	c.Start()
 }
 
 func startInsightsEndpoint(mgr manager.Manager) {
 	router := service.SetupRouter(insightsTokenSecret, mqWriteObject, mqEnable)
-	go router.Run(fmt.Sprintf(":%v", webservicePort))
+	go func() {
+		if err := router.Run(fmt.Sprintf(":%v", webservicePort)); err != nil {
+			log.Printf("Error running insights endpoint: %v", err)
+		}
+	}()
 }

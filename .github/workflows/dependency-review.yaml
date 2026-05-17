@@ -1,0 +1,19 @@
+name: dependency review
+on:
+  pull_request:
+    branches:
+    - main
+  merge_group:
+    types:
+    - checks_requested
+permissions: {}
+jobs:
+  dependency-review:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+    - uses: actions/dependency-review-action@da24556b548a50705dd671f47852072ea4c105d9 # v4.7.1
+      with:
+        config-file: .github/dependency-review-config.yaml

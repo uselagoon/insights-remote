@@ -16,15 +16,15 @@ import (
 )
 
 type Templates struct {
-	//RootProjectNameTemplate   string // If a root project is set, all subsequent projects will be children of this project
-	//ParentProjectNameTemplate string
+	// RootProjectNameTemplate   string // If a root project is set, all subsequent projects will be children of this project
+	// ParentProjectNameTemplate string
 	ParentProjectNameTemplates []string
 	ProjectNameTemplate        string
 	VersionTemplate            string
 }
 
 type writeInfo struct {
-	//RootName          string
+	// RootName          string
 	ParentProjectNames []string
 	ProjectName        string
 	ProjectVersion     string
@@ -195,7 +195,9 @@ func unzipByteStream(input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
-	defer gzipReader.Close()
+	defer func() {
+		_ = gzipReader.Close()
+	}()
 
 	_, err = io.Copy(output, gzipReader)
 	return err
@@ -261,7 +263,7 @@ func postProcess(message internal.LagoonInsightsMessage, pushProdOnly bool, temp
 		ParentUUID:     &project.UUID,
 		AutoCreate:     true,
 		ProjectVersion: writeInfo.ProjectVersion,
-		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()), //base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
+		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
 		ProjectTags:    dtrackTags,
 	}
 

@@ -27,6 +27,10 @@ func NewPostProcessor(
 	}
 }
 
+func (p *PostProcess) Label() string {
+	return "core.insights.lagoon.sh/status"
+}
+
 func (p *PostProcess) PostProcess(message internal.LagoonInsightsMessage) error {
 	if message.Annotations["core.insights.lagoon.sh/enabled"] != "true" {
 		return nil

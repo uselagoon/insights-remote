@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"flag"
 	"fmt"
 	"testing"
 
@@ -25,8 +26,13 @@ import (
 )
 
 // Run e2e tests using the Ginkgo runner.
+var runE2ETests = flag.Bool("e2e", false, "run e2e tests")
+
 func TestE2E(t *testing.T) {
+	if !*runE2ETests {
+		t.Skip("Skipping e2e tests; use -e2e to run them")
+	}
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	fmt.Fprintf(ginkgo.GinkgoWriter, "Starting insights-remote suite\n")
+	_, _ = fmt.Fprintf(ginkgo.GinkgoWriter, "Starting insights-remote suite\n")
 	ginkgo.RunSpecs(t, "e2e suite")
 }

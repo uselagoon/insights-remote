@@ -6,15 +6,12 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	v12 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func Test_generateScanPodSpec(t *testing.T) {
 	type args struct {
-		images    []string
-		buildName string
-		namespace string
-		buildPod  *corev1.Pod
+		images   []string
+		buildPod *corev1.Pod
 	}
 	tests := []struct {
 		name    string
@@ -35,7 +32,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 			args: args{
 				images: []string{"image1", "image2"},
 				buildPod: &corev1.Pod{
-					ObjectMeta: v12.ObjectMeta{
+					ObjectMeta: v1.ObjectMeta{
 						Namespace: "testns",
 						Name:      "buildnamehere",
 					},
@@ -123,7 +120,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 			args: args{
 				images: []string{"image1", "image2"},
 				buildPod: &corev1.Pod{
-					ObjectMeta: v12.ObjectMeta{
+					ObjectMeta: v1.ObjectMeta{
 						Namespace: "testns",
 						Name:      "buildnamehere",
 					},

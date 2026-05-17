@@ -2,7 +2,7 @@ package service
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -86,7 +86,7 @@ func generateDeletionMessage(c *gin.Context, r *routerInstance, deletionType str
 		return
 	}
 
-	if err := r.writeToQueue(c, err, jsonRep); err != nil {
+	if err := r.writeToQueue(c, jsonRep); err != nil {
 		c.JSON(http.StatusInternalServerError, err)
 		return
 	}
@@ -116,7 +116,7 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 	fmt.Println("Going to write to namespace ", namespace)
 
 	details := &internal.Problems{Type: "direct.problems"}
-	problemList := *new([]internal.Problem)
+	problemList := []internal.Problem(nil)
 
 	if err = c.ShouldBindJSON(&problemList); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -127,7 +127,7 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 		return
 	}
 
-	//let's force our facts to get pushed to the right place
+	// let's force our problems to get pushed to the right place
 	lid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -158,7 +158,7 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 		return
 	}
 
-	if err := r.writeToQueue(c, err, jsonRep); err != nil {
+	if err := r.writeToQueue(c, jsonRep); err != nil {
 		c.JSON(http.StatusInternalServerError, err)
 		return
 	}
@@ -168,10 +168,9 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 	})
 }
 
-func (r *routerInstance) writeToQueue(c *gin.Context, err error, jsonRep []byte) error {
+func (r *routerInstance) writeToQueue(c *gin.Context, jsonRep []byte) error {
 	if r.WriteToQueue {
-		err = r.MessageQWriter(jsonRep)
-		if err != nil {
+		if err := r.MessageQWriter(jsonRep); err != nil {
 			return err
 		}
 	} else {
@@ -203,9 +202,9 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 	details := &internal.Facts{Type: "direct.facts"}
 
 	// we try two different ways of parsing incoming facts - first as a simple list of facts
-	ByteBody, _ := ioutil.ReadAll(c.Request.Body)
+	ByteBody, _ := io.ReadAll(c.Request.Body)
 
-	factList := *new([]internal.Fact)
+	factList := []internal.Fact(nil)
 	if err = json.Unmarshal(ByteBody, &factList); err != nil { // it might just be they're passing the "big" version with all details
 		if err = json.Unmarshal(ByteBody, details); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -219,7 +218,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 		details.Facts = factList
 	}
 
-	//let's force our facts to get pushed to the right place
+	// let's force our facts to get pushed to the right place
 	lid, err := strconv.ParseInt(namespace.EnvironmentId, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
