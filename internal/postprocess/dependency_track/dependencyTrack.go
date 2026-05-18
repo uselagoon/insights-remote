@@ -210,6 +210,20 @@ func postProcess(message internal.LagoonInsightsMessage, pushProdOnly bool, temp
 		return err
 	}
 
+	// let's build the tags for this project
+	// specifically, we'll see if we have any details about the service type
+	dtrackTags := []dtrack.Tag{}
+	var environmentType string
+	if val, ok := message.Labels["lagoon.sh/environmentType"]; ok {
+		dtrackTags = append(dtrackTags, dtrack.Tag{Name: fmt.Sprintf("lagoon-environmenttype-%v", val)})
+		environmentType = val
+	}
+
+	if pushProdOnly && environmentType != lagoonShEnvironmentTypeProd {
+		slog.Info("Skipping non-production environment for Dependency Track", "environmentType", environmentType, "project", message.Project, "environment", message.Environment)
+		return nil
+	}
+
 	// Here we iterate over the parent projects, creating them if/when we need
 	// only the last one gets passed to the upload
 	var project *dtrack.Project
@@ -242,20 +256,6 @@ func postProcess(message internal.LagoonInsightsMessage, pushProdOnly bool, temp
 
 	if err != nil {
 		return err
-	}
-
-	// let's build the tags for this project
-	// specifically, we'll see if we have any details about the service type
-	dtrackTags := []dtrack.Tag{}
-	var environmentType string
-	if val, ok := message.Labels["lagoon.sh/environmentType"]; ok {
-		dtrackTags = append(dtrackTags, dtrack.Tag{Name: fmt.Sprintf("lagoon-environmenttype-%v", val)})
-		environmentType = val
-	}
-
-	if pushProdOnly && environmentType != lagoonShEnvironmentTypeProd {
-		slog.Info("Skipping non-production environment for Dependency Track", "environmentType", environmentType, "project", message.Project, "environment", message.Environment)
-		return nil
 	}
 
 	request := dtrack.BOMUploadRequest{
