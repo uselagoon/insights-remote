@@ -8,15 +8,17 @@ import (
 
 // DefaultPostProcess will send insights for all namespaces to a central Dependency Track instance.
 type DefaultPostProcess struct {
-	ApiEndpoint string
-	ApiKey      string
-	Templates   Templates
+	ApiEndpoint  string
+	ApiKey       string
+	Templates    Templates
+	PushProdOnly bool
 }
 
 func NewDefaultPostProcessor(
 	enableDependencyTrackIntegration bool,
 	dependencyTrackApiEndpoint string,
 	dependencyTrackApiKey string,
+	pushProdOnly bool,
 	dependencyTrackRootProjectNameTemplate string,
 	dependencyTrackParentProjectNameTemplate string,
 	dependencyTrackProjectNameTemplate string,
@@ -31,8 +33,9 @@ func NewDefaultPostProcessor(
 	}
 
 	return &DefaultPostProcess{
-		ApiEndpoint: dependencyTrackApiEndpoint,
-		ApiKey:      dependencyTrackApiKey,
+		ApiEndpoint:  dependencyTrackApiEndpoint,
+		ApiKey:       dependencyTrackApiKey,
+		PushProdOnly: pushProdOnly,
 		Templates: newTemplate(
 			dependencyTrackRootProjectNameTemplate,
 			dependencyTrackParentProjectNameTemplate,
@@ -53,7 +56,7 @@ func (d *DefaultPostProcess) PostProcess(message internal.LagoonInsightsMessage)
 		return err
 	}
 
-	err = postProcess(message, d.Templates, client)
+	err = postProcess(message, d.PushProdOnly, d.Templates, client)
 	return err
 }
 

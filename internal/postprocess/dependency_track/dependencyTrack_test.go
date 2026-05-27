@@ -242,3 +242,57 @@ func Test_getWriteInfo(t *testing.T) {
 		})
 	}
 }
+
+func Test_resolvePushProdOnly(t *testing.T) {
+	tests := []struct {
+		name          string
+		globalDefault bool
+		secretData    map[string][]byte
+		want          bool
+	}{
+		{
+			name:          "absent key uses global default true",
+			globalDefault: true,
+			secretData:    map[string][]byte{},
+			want:          true,
+		},
+		{
+			name:          "absent key uses global default false",
+			globalDefault: false,
+			secretData:    map[string][]byte{},
+			want:          false,
+		},
+		{
+			name:          "override false overrides global true",
+			globalDefault: true,
+			secretData:    map[string][]byte{lagoonEnvDTPushProdOnly: []byte("false")},
+			want:          false,
+		},
+		{
+			name:          "override true overrides global false",
+			globalDefault: false,
+			secretData:    map[string][]byte{lagoonEnvDTPushProdOnly: []byte("true")},
+			want:          true,
+		},
+		{
+			name:          "invalid value falls back to global default",
+			globalDefault: true,
+			secretData:    map[string][]byte{lagoonEnvDTPushProdOnly: []byte("yes")},
+			want:          true,
+		},
+		{
+			name:          "empty value falls back to global default",
+			globalDefault: false,
+			secretData:    map[string][]byte{lagoonEnvDTPushProdOnly: []byte("")},
+			want:          false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolvePushProdOnly(tt.globalDefault, tt.secretData)
+			if got != tt.want {
+				t.Errorf("resolvePushProdOnly() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
