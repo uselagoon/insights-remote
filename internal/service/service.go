@@ -13,7 +13,7 @@ import (
 )
 
 type AuthHeader struct {
-	Authorization string `header:"Authorization"`
+	Authorization string `header:"Authorization" binding:"required"`
 }
 
 // routerInstance is used to share state
@@ -24,8 +24,16 @@ type routerInstance struct {
 }
 
 func SetupRouter(secret string, messageQWriter func(data []byte) error, writeToQueue bool) *gin.Engine {
-	router := gin.Default()
+
+	router := gin.New()
+
+	// set up the standard middlewares
+	router.Use(gin.Recovery())
+	router.Use(gin.Logger())
+	router.Use(TokenParserMiddleware(secret))
+
 	r := routerInstance{secret: secret}
+
 	r.MessageQWriter = messageQWriter
 	r.WriteToQueue = writeToQueue
 	router.POST("/facts", r.writeFacts)
@@ -46,17 +54,14 @@ func (r *routerInstance) deleteFacts(c *gin.Context) {
 }
 
 func generateDeletionMessage(c *gin.Context, r *routerInstance, deletionType string) {
-	h := &AuthHeader{}
-	if err := c.ShouldBindHeader(&h); err != nil {
-		c.JSON(http.StatusOK, err)
-	}
 
-	namespace, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.secret, h.Authorization)
+	n, exists := c.Get("namespace")
+	namespace, ok := n.(tokens.NamespaceDetails)
 
-	if err != nil {
+	if !exists || !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "unauthorized",
-			"message": err.Error(),
+			"message": "unauthorized",
 		})
 		return
 	}
@@ -98,17 +103,13 @@ func generateDeletionMessage(c *gin.Context, r *routerInstance, deletionType str
 
 func (r *routerInstance) writeProblems(c *gin.Context) {
 
-	h := &AuthHeader{}
-	if err := c.ShouldBindHeader(&h); err != nil {
-		c.JSON(http.StatusOK, err)
-	}
+	n, exists := c.Get("namespace")
+	namespace, ok := n.(tokens.NamespaceDetails)
 
-	namespace, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.secret, h.Authorization)
-
-	if err != nil {
+	if !exists || !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "unauthorized",
-			"message": err.Error(),
+			"message": "unauthorized",
 		})
 		return
 	}
@@ -118,7 +119,7 @@ func (r *routerInstance) writeProblems(c *gin.Context) {
 	details := &internal.Problems{Type: "direct.problems"}
 	problemList := []internal.Problem(nil)
 
-	if err = c.ShouldBindJSON(&problemList); err != nil {
+	if err := c.ShouldBindJSON(&problemList); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status":  "Unable to parse incoming data",
 			"message": err.Error(),
@@ -181,21 +182,16 @@ func (r *routerInstance) writeToQueue(c *gin.Context, jsonRep []byte) error {
 
 func (r *routerInstance) writeFacts(c *gin.Context) {
 
-	h := &AuthHeader{}
-	if err := c.ShouldBindHeader(&h); err != nil {
-		c.JSON(http.StatusOK, err)
-	}
+	n, exists := c.Get("namespace")
+	namespace, ok := n.(tokens.NamespaceDetails)
 
-	namespace, err := tokens.ValidateAndExtractNamespaceDetailsFromToken(r.secret, h.Authorization)
-
-	if err != nil {
+	if !exists || !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "unauthorized",
-			"message": err.Error(),
+			"message": "unauthorized",
 		})
 		return
 	}
-
 	fmt.Println("Going to write to namespace ", namespace)
 
 	//TODO: drop "InsightsType" for Type of the form "direct.fact"/"direct.problem"
@@ -205,7 +201,7 @@ func (r *routerInstance) writeFacts(c *gin.Context) {
 	ByteBody, _ := io.ReadAll(c.Request.Body)
 
 	factList := []internal.Fact(nil)
-	if err = json.Unmarshal(ByteBody, &factList); err != nil { // it might just be they're passing the "big" version with all details
+	if err := json.Unmarshal(ByteBody, &factList); err != nil { // it might just be they're passing the "big" version with all details
 		if err = json.Unmarshal(ByteBody, details); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"status":  "Unable to parse incoming data",
