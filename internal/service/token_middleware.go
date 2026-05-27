@@ -32,3 +32,14 @@ func TokenParserMiddleware(secret string) gin.HandlerFunc {
 		c.Next()
 	}
 }
+
+// GetNamespaceDetails retrieves the authenticated namespace from the gin context.
+// It should only be called in handlers protected by TokenParserMiddleware.
+func GetNamespaceDetails(c *gin.Context) (tokens.NamespaceDetails, bool) {
+	n, exists := c.Get("namespace")
+	if !exists {
+		return tokens.NamespaceDetails{}, false
+	}
+	namespace, ok := n.(tokens.NamespaceDetails)
+	return namespace, ok
+}

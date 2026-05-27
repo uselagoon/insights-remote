@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/util/json"
 	"lagoon.sh/insights-remote/internal"
-	"lagoon.sh/insights-remote/internal/tokens"
 )
 
 type AuthHeader struct {
@@ -55,10 +54,8 @@ func (r *routerInstance) deleteFacts(c *gin.Context) {
 
 func generateDeletionMessage(c *gin.Context, r *routerInstance, deletionType string) {
 
-	n, exists := c.Get("namespace")
-	namespace, ok := n.(tokens.NamespaceDetails)
-
-	if !exists || !ok {
+	namespace, ok := GetNamespaceDetails(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "unauthorized",
 			"message": "unauthorized",
@@ -103,10 +100,8 @@ func generateDeletionMessage(c *gin.Context, r *routerInstance, deletionType str
 
 func (r *routerInstance) writeProblems(c *gin.Context) {
 
-	n, exists := c.Get("namespace")
-	namespace, ok := n.(tokens.NamespaceDetails)
-
-	if !exists || !ok {
+	namespace, ok := GetNamespaceDetails(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "unauthorized",
 			"message": "unauthorized",
@@ -182,10 +177,8 @@ func (r *routerInstance) writeToQueue(c *gin.Context, jsonRep []byte) error {
 
 func (r *routerInstance) writeFacts(c *gin.Context) {
 
-	n, exists := c.Get("namespace")
-	namespace, ok := n.(tokens.NamespaceDetails)
-
-	if !exists || !ok {
+	namespace, ok := GetNamespaceDetails(c)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"status":  "unauthorized",
 			"message": "unauthorized",
