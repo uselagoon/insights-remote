@@ -31,9 +31,11 @@ import (
 	"lagoon.sh/insights-remote/cmlib"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
 // ConfigMapReconciler reconciles a ConfigMap object
@@ -257,11 +259,14 @@ func insightsProcessedAnnotationExists(eventObject client.Object) bool {
 }
 
 // SetupWithManager sets up the controller with the Manager.
-func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ConfigMapReconciler) SetupWithManager(mgr ctrl.Manager, maxConcurrentReconciles int) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&corev1.ConfigMap{}).
 		WithEventFilter(insightLabelsOnlyPredicate()).
 		WithEventFilter(insightMaxRetryPredicate()).
+		WithOptions(controller.TypedOptions[reconcile.Request]{
+			MaxConcurrentReconciles: maxConcurrentReconciles,
+		}).
 		Complete(r)
 }
 

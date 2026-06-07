@@ -80,6 +80,7 @@ var (
 	enableCMReconciler                       bool
 	cmReconcilerMaxRetries                   int
 	cmReconcilerMinutesBetweenRetries        int
+	maxConcurrentCMReconcilers               int
 	enableInsightDeferred                    bool //TODO: Better names for this
 	enableWebservice                         bool
 	tokenTargetLabel                         string
@@ -126,6 +127,8 @@ func main() {
 		"The number of times the configmap reconciler will attempt to run a post-processor before failing")
 	flag.IntVar(&cmReconcilerMinutesBetweenRetries, "configmap-reconciler-mins-between-retries", 3,
 		"The number of minutes the configmap reconciler will wait before attempting a rerun on a failed post-processor")
+	flag.IntVar(&maxConcurrentCMReconcilers, "configmap-reconciler-max-concurrent", 1,
+		"Maximum number of configmap reconcilers that can run concurrently (env var: CONFIGMAP_RECONCILER_MAX_CONCURRENT).")
 
 	// Insights shipping: web service.
 	flag.BoolVar(&enableNSReconciler, "enable-namespace-reconciler", true,
@@ -240,6 +243,9 @@ func main() {
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
 	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
 	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+	if v, err := strconv.Atoi(variables.GetEnv("CONFIGMAP_RECONCILER_MAX_CONCURRENT", "")); err == nil {
+		maxConcurrentCMReconcilers = v
+	}
 
 	// Controlling CM post-processor retries
 	cmReconcilerMaxRetries = variables.GetEnvInt("CONFIGMAP_RECONCILER_MAX_RETRIES", cmReconcilerMaxRetries)
@@ -406,7 +412,7 @@ func main() {
 			PostProcessors:        postProcessors,
 			MinutesBetweenRetries: cmReconcilerMinutesBetweenRetries,
 			MaxNumberOfRetries:    cmReconcilerMaxRetries,
-		}).SetupWithManager(mgr); err != nil {
+		}).SetupWithManager(mgr, maxConcurrentCMReconcilers); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "ConfigMap")
 			os.Exit(1)
 		}
