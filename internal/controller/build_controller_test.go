@@ -10,8 +10,9 @@ import (
 
 func Test_generateScanPodSpec(t *testing.T) {
 	type args struct {
-		images   []string
-		buildPod *corev1.Pod
+		images       []string
+		buildPod     *corev1.Pod
+		extraEnvVars map[string]string
 	}
 	tests := []struct {
 		name    string
@@ -22,8 +23,9 @@ func Test_generateScanPodSpec(t *testing.T) {
 		{
 			name: "No images to scan",
 			args: args{
-				images:   nil,
-				buildPod: &corev1.Pod{},
+				images:       nil,
+				buildPod:     &corev1.Pod{},
+				extraEnvVars: nil,
 			},
 			wantErr: true,
 		},
@@ -53,6 +55,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 						},
 					},
 				},
+				extraEnvVars: nil,
 			},
 			want: &corev1.Pod{
 				ObjectMeta: v1.ObjectMeta{
@@ -161,6 +164,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 						},
 					},
 				},
+				extraEnvVars: nil,
 			},
 			want: &corev1.Pod{
 				ObjectMeta: v1.ObjectMeta{
@@ -235,10 +239,103 @@ func Test_generateScanPodSpec(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "Extra env vars are added to scan pod",
+			args: args{
+				images: []string{"image1"},
+				buildPod: &corev1.Pod{
+					ObjectMeta: v1.ObjectMeta{
+						Namespace: "testns",
+						Name:      "buildnamehere",
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Env: []corev1.EnvVar{
+									{
+										Name:  "PROJECT",
+										Value: "projectName",
+									},
+								},
+							},
+						},
+					},
+				},
+				extraEnvVars: map[string]string{
+					"SYFT_PARALLELISM": "2",
+					"SYFT_LOG_LEVEL":   "warn",
+				},
+			},
+			want: &corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					Namespace: "testns",
+					Name:      scannerNameFromBuildname("buildnamehere"),
+					Labels:    imageScanPodLabels(),
+				},
+				Spec: corev1.PodSpec{
+					ServiceAccountName: "lagoon-deployer",
+					Containers: []corev1.Container{
+						{
+							Name:  "scanner",
+							Image: "scanImageName",
+							Env: []corev1.EnvVar{
+								{
+									Name:  "INSIGHT_SCAN_IMAGES",
+									Value: "image1",
+								},
+								{
+									Name:  "NAMESPACE",
+									Value: "testns",
+								},
+								{
+									Name:  "DOCKER_HOST",
+									Value: defaultDockerhost,
+								},
+								{
+									Name:  "PROJECT",
+									Value: "projectName",
+								},
+								// Extra env vars appended in sorted key order
+								{
+									Name:  "SYFT_LOG_LEVEL",
+									Value: "warn",
+								},
+								{
+									Name:  "SYFT_PARALLELISM",
+									Value: "2",
+								},
+							},
+							ImagePullPolicy: "Always",
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "lagoon-internal-registry-secret",
+									MountPath: "/home/.docker/",
+									ReadOnly:  true,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "lagoon-internal-registry-secret",
+							VolumeSource: corev1.VolumeSource{
+								Secret: &corev1.SecretVolumeSource{
+									SecretName: "lagoon-internal-registry-secret",
+									Items: []corev1.KeyToPath{
+										{Key: ".dockerconfigjson", Path: "config.json"},
+									},
+								},
+							},
+						},
+					},
+					RestartPolicy: "Never",
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := generateScanPodSpec(tt.args.buildPod, tt.args.images, "scanImageName", defaultDockerhost)
+			got, err := generateScanPodSpec(tt.args.buildPod, tt.args.images, "scanImageName", defaultDockerhost, tt.args.extraEnvVars)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("generateScanPodSpec() error = %v, wantErr %v", err, tt.wantErr)
 				return

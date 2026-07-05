@@ -24,10 +24,12 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"lagoon.sh/insights-remote/internal"
 	controllers "lagoon.sh/insights-remote/internal/controller"
+	"lagoon.sh/insights-remote/internal/flagutil"
 	"lagoon.sh/insights-remote/internal/postprocess"
 	deptrack "lagoon.sh/insights-remote/internal/postprocess/dependency_track"
 	insightscore "lagoon.sh/insights-remote/internal/postprocess/insights_core"
@@ -92,6 +94,8 @@ var (
 	generateTokenOnlyEnvironmentName         string
 	enableBuildScanning                      bool
 	buildScannerImage                        string
+	buildScannerExtraEnvVars                 map[string]string
+	scannerExtraEnvVarFlags                  flagutil.EnvVarFlags
 	enableDependencyTrackIntegration         bool
 	dependencyTrackApiEndpoint               string
 	dependencyTrackApiKey                    string
@@ -206,6 +210,9 @@ func main() {
 	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
 		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
 
+	flag.Var(&scannerExtraEnvVarFlags, "build-scanner-extra-env",
+		"Extra KEY=VALUE environment variable to inject into the scan pod (can be repeated; env var: BUILD_SCANNER_EXTRA_ENV_VARS accepts comma-separated KEY=VALUE pairs).")
+
 	// Automatically parse logging flags.
 	opts := zap.Options{
 		Development: true,
@@ -243,6 +250,15 @@ func main() {
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
 	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
 	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
+	// Merge extra env vars from CLI flags and the BUILD_SCANNER_EXTRA_ENV_VARS env var.
+	// The env var accepts a comma-separated list of KEY=VALUE pairs.
+	if envVarStr := variables.GetEnv("BUILD_SCANNER_EXTRA_ENV_VARS", ""); envVarStr != "" {
+		for _, kv := range strings.Split(envVarStr, ",") {
+			scannerExtraEnvVarFlags.Set(kv)
+		}
+	}
+	buildScannerExtraEnvVars = flagutil.ParseEnvVarFlags(scannerExtraEnvVarFlags)
 	if v, err := strconv.Atoi(variables.GetEnv("CONFIGMAP_RECONCILER_MAX_CONCURRENT", "")); err == nil {
 		maxConcurrentCMReconcilers = v
 	}
@@ -453,6 +469,7 @@ func main() {
 			Scheme:            mgr.GetScheme(),
 			InsightsJWTSecret: insightsTokenSecret,
 			ScanImageName:     buildScannerImage,
+			ExtraEnvVars:      buildScannerExtraEnvVars,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
 			os.Exit(1)
