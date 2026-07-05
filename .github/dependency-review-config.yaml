@@ -10,6 +10,8 @@ allow-licenses:
 - 'Python-2.0'
 - 'X11'
 - 'Zlib'
+# Google's patent licence for Go
+- 'LicenseRef-scancode-google-patent-license-golang'
 
 allow-dependencies-licenses:
 # this action is GPL-3 but it is only used in CI
