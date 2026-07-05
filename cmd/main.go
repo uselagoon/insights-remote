@@ -255,7 +255,11 @@ func main() {
 	// The env var accepts a comma-separated list of KEY=VALUE pairs.
 	if envVarStr := variables.GetEnv("BUILD_SCANNER_EXTRA_ENV_VARS", ""); envVarStr != "" {
 		for _, kv := range strings.Split(envVarStr, ",") {
-			scannerExtraEnvVarFlags.Set(kv)
+			e := scannerExtraEnvVarFlags.Set(kv)
+			if e != nil {
+				// if this fails, something serious is wrong
+				log.Fatalf("Unable to add extra env vars, error: %v", e.Error())
+			}
 		}
 	}
 	buildScannerExtraEnvVars = flagutil.ParseEnvVarFlags(scannerExtraEnvVarFlags)
