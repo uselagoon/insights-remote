@@ -37,6 +37,10 @@ func ValidateAndExtractNamespaceDetailsFromToken(key, token string) (NamespaceDe
 		return []byte(key), nil
 	})
 
+	if err != nil {
+		return NamespaceDetails{}, err
+	}
+
 	ret := NamespaceDetails{}
 
 	if claims, ok := outToken.Claims.(jwt.MapClaims); ok && outToken.Valid {
