@@ -206,13 +206,13 @@ func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, d
 		},
 	}
 
-	envMap := map[string]string{
-		"INSIGHT_SCAN_IMAGES": strings.Join(images, ","),
-		"NAMESPACE":           buildPod.Namespace,
-		"DOCKER_HOST":         dockerhost,
+	envMap := map[string]corev1.EnvVar{
+		"INSIGHT_SCAN_IMAGES": {Name: "INSIGHT_SCAN_IMAGES", Value: strings.Join(images, ",")},
+		"NAMESPACE":           {Name: "NAMESPACE", Value: buildPod.Namespace},
+		"DOCKER_HOST":         {Name: "DOCKER_HOST", Value: dockerhost},
 	}
 
-	// Copy env vars from the build pod to the scan pod
+	// Copy env vars from the build pod to the scan pod, preserving ValueFrom
 	copyVars := []string{
 		"BRANCH", "BUILD_TYPE", "ENVIRONMENT", "ENVIRONMENT_TYPE", "PROJECT",
 		"PR_BASE_BRANCH", "PR_HEAD_BRANCH", "PR_NUMBER",
@@ -220,13 +220,13 @@ func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, d
 	}
 	for _, e := range buildPod.Spec.Containers[0].Env {
 		if containsRegex(copyVars, e.Name) {
-			envMap[e.Name] = e.Value
+			envMap[e.Name] = e
 		}
 	}
 
 	// Extra env vars override anything above
 	for k, v := range extraEnvVars {
-		envMap[k] = v
+		envMap[k] = corev1.EnvVar{Name: k, Value: v}
 	}
 
 	// Convert to a sorted slice for determinism
@@ -237,7 +237,7 @@ func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, d
 	sort.Strings(envKeys)
 	envVars := make([]corev1.EnvVar, len(envKeys))
 	for i, k := range envKeys {
-		envVars[i] = corev1.EnvVar{Name: k, Value: envMap[k]}
+		envVars[i] = envMap[k]
 	}
 
 	podSpec.Spec.Containers[0].Env = envVars

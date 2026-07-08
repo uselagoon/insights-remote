@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -208,10 +209,15 @@ func main() {
 		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
 
 	buildScannerExtraEnvVars := make(map[string]string)
+	envVarNameRe := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	parseKV := func(s string) error {
 		k, v, ok := strings.Cut(strings.TrimSpace(s), "=")
-		if !ok || strings.TrimSpace(k) == "" {
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
 			return fmt.Errorf("expected KEY=VALUE, got %q", s)
+		}
+		if !envVarNameRe.MatchString(k) {
+			return fmt.Errorf("invalid env var name %q: must match [A-Za-z_][A-Za-z0-9_]*", k)
 		}
 		buildScannerExtraEnvVars[k] = v
 		return nil
