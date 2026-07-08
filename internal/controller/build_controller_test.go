@@ -69,57 +69,42 @@ func Test_generateScanPodSpec(t *testing.T) {
 						{
 							Name:  "scanner",
 							Image: "scanImageName",
-							Env: []corev1.EnvVar{
-								{
-									Name:  "INSIGHT_SCAN_IMAGES",
-									Value: "image1,image2",
-								},
-								{
-									Name:  "NAMESPACE",
-									Value: "testns",
-								},
-								{
-									Name:  "DOCKER_HOST",
-									Value: defaultDockerhost,
-								},
-								{
-									Name:  "PROJECT",
-									Value: "projectName",
-								},
-								{
-									Name:  "ENVIRONMENT",
-									Value: "environmentName",
-								},
-							},
-							ImagePullPolicy: "Always",
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "lagoon-internal-registry-secret",
-									MountPath: "/home/.docker/",
-									ReadOnly:  true,
-								},
+						Env: []corev1.EnvVar{
+							{Name: "DOCKER_HOST", Value: defaultDockerhost},
+							{Name: "ENVIRONMENT", Value: "environmentName"},
+							{Name: "INSIGHT_SCAN_IMAGES", Value: "image1,image2"},
+							{Name: "NAMESPACE", Value: "testns"},
+							{Name: "PROJECT", Value: "projectName"},
+						},
+						ImagePullPolicy: "Always",
+						VolumeMounts: []corev1.VolumeMount{
+							{
+								Name:      "lagoon-internal-registry-secret",
+								MountPath: "/home/.docker/",
+								ReadOnly:  true,
 							},
 						},
 					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "lagoon-internal-registry-secret",
-							VolumeSource: corev1.VolumeSource{
-								Secret: &corev1.SecretVolumeSource{
-									SecretName: "lagoon-internal-registry-secret",
-									Items: []corev1.KeyToPath{
-										{Key: ".dockerconfigjson", Path: "config.json"},
-									},
-								},
-							},
-						},
-					},
-					RestartPolicy: "Never",
 				},
+				Volumes: []corev1.Volume{
+					{
+						Name: "lagoon-internal-registry-secret",
+						VolumeSource: corev1.VolumeSource{
+							Secret: &corev1.SecretVolumeSource{
+								SecretName: "lagoon-internal-registry-secret",
+								Items: []corev1.KeyToPath{
+									{Key: ".dockerconfigjson", Path: "config.json"},
+								},
+							},
+						},
+					},
+				},
+				RestartPolicy: "Never",
 			},
 		},
-		{
-			name: "Copy build pod env vars",
+	},
+	{
+		name: "Copy build pod env vars",
 			args: args{
 				images: []string{"image1", "image2"},
 				buildPod: &corev1.Pod{
@@ -178,40 +163,16 @@ func Test_generateScanPodSpec(t *testing.T) {
 						{
 							Name:  "scanner",
 							Image: "scanImageName",
-							Env: []corev1.EnvVar{
-								{
-									Name:  "INSIGHT_SCAN_IMAGES",
-									Value: "image1,image2",
-								},
-								{
-									Name:  "NAMESPACE",
-									Value: "testns",
-								},
-								{
-									Name:  "DOCKER_HOST",
-									Value: defaultDockerhost,
-								},
-								{
-									Name:  "PROJECT",
-									Value: "projectName",
-								},
-								{
-									Name:  "ENVIRONMENT",
-									Value: "environmentName",
-								},
-								{
-									Name:  "LAGOON_ENVIRONMENT_VARIABLES",
-									Value: "lagoonEnvironmentVariables",
-								},
-								{
-									Name:  "LAGOON_FEATURE_FLAG_TEST",
-									Value: "lagoonFeatureFlagTest",
-								},
-								{
-									Name:  "LAGOON_FEATURE_FLAG_INSIGHTS",
-									Value: "lagoonFeatureFlagInsights",
-								},
-							},
+						Env: []corev1.EnvVar{
+							{Name: "DOCKER_HOST", Value: defaultDockerhost},
+							{Name: "ENVIRONMENT", Value: "environmentName"},
+							{Name: "INSIGHT_SCAN_IMAGES", Value: "image1,image2"},
+							{Name: "LAGOON_ENVIRONMENT_VARIABLES", Value: "lagoonEnvironmentVariables"},
+							{Name: "LAGOON_FEATURE_FLAG_INSIGHTS", Value: "lagoonFeatureFlagInsights"},
+							{Name: "LAGOON_FEATURE_FLAG_TEST", Value: "lagoonFeatureFlagTest"},
+							{Name: "NAMESPACE", Value: "testns"},
+							{Name: "PROJECT", Value: "projectName"},
+						},
 							ImagePullPolicy: "Always",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -278,33 +239,14 @@ func Test_generateScanPodSpec(t *testing.T) {
 						{
 							Name:  "scanner",
 							Image: "scanImageName",
-							Env: []corev1.EnvVar{
-								{
-									Name:  "INSIGHT_SCAN_IMAGES",
-									Value: "image1",
-								},
-								{
-									Name:  "NAMESPACE",
-									Value: "testns",
-								},
-								{
-									Name:  "DOCKER_HOST",
-									Value: defaultDockerhost,
-								},
-								{
-									Name:  "PROJECT",
-									Value: "projectName",
-								},
-								// Extra env vars appended in sorted key order
-								{
-									Name:  "SYFT_LOG_LEVEL",
-									Value: "warn",
-								},
-								{
-									Name:  "SYFT_PARALLELISM",
-									Value: "2",
-								},
-							},
+						Env: []corev1.EnvVar{
+							{Name: "DOCKER_HOST", Value: defaultDockerhost},
+							{Name: "INSIGHT_SCAN_IMAGES", Value: "image1"},
+							{Name: "NAMESPACE", Value: "testns"},
+							{Name: "PROJECT", Value: "projectName"},
+							{Name: "SYFT_LOG_LEVEL", Value: "warn"},
+							{Name: "SYFT_PARALLELISM", Value: "2"},
+						},
 							ImagePullPolicy: "Always",
 							VolumeMounts: []corev1.VolumeMount{
 								{

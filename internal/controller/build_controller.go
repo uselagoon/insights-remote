@@ -206,10 +206,10 @@ func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, d
 		},
 	}
 
-	envVars := []corev1.EnvVar{
-		{Name: "INSIGHT_SCAN_IMAGES", Value: strings.Join(images, ",")},
-		{Name: "NAMESPACE", Value: buildPod.Namespace},
-		{Name: "DOCKER_HOST", Value: dockerhost},
+	envMap := map[string]string{
+		"INSIGHT_SCAN_IMAGES": strings.Join(images, ","),
+		"NAMESPACE":           buildPod.Namespace,
+		"DOCKER_HOST":         dockerhost,
 	}
 
 	// Copy env vars from the build pod to the scan pod
@@ -218,21 +218,26 @@ func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, d
 		"PR_BASE_BRANCH", "PR_HEAD_BRANCH", "PR_NUMBER",
 		"LAGOON_ENVIRONMENT_VARIABLES", "LAGOON_FEATURE_FLAG_.+",
 	}
-	for i := range buildPod.Spec.Containers[0].Env {
-		if containsRegex(copyVars, buildPod.Spec.Containers[0].Env[i].Name) {
-			envVars = append(envVars, buildPod.Spec.Containers[0].Env[i])
-			continue
+	for _, e := range buildPod.Spec.Containers[0].Env {
+		if containsRegex(copyVars, e.Name) {
+			envMap[e.Name] = e.Value
 		}
 	}
 
-	// Add extra env vars in sorted key order for determinism
-	extraKeys := make([]string, 0, len(extraEnvVars))
-	for k := range extraEnvVars {
-		extraKeys = append(extraKeys, k)
+	// Extra env vars override anything above
+	for k, v := range extraEnvVars {
+		envMap[k] = v
 	}
-	sort.Strings(extraKeys)
-	for _, k := range extraKeys {
-		envVars = append(envVars, corev1.EnvVar{Name: k, Value: extraEnvVars[k]})
+
+	// Convert to a sorted slice for determinism
+	envKeys := make([]string, 0, len(envMap))
+	for k := range envMap {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	envVars := make([]corev1.EnvVar, len(envKeys))
+	for i, k := range envKeys {
+		envVars[i] = corev1.EnvVar{Name: k, Value: envMap[k]}
 	}
 
 	podSpec.Spec.Containers[0].Env = envVars

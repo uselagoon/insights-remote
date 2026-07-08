@@ -29,7 +29,6 @@ import (
 
 	"lagoon.sh/insights-remote/internal"
 	controllers "lagoon.sh/insights-remote/internal/controller"
-	"lagoon.sh/insights-remote/internal/flagutil"
 	"lagoon.sh/insights-remote/internal/postprocess"
 	deptrack "lagoon.sh/insights-remote/internal/postprocess/dependency_track"
 	insightscore "lagoon.sh/insights-remote/internal/postprocess/insights_core"
@@ -94,8 +93,6 @@ var (
 	generateTokenOnlyEnvironmentName         string
 	enableBuildScanning                      bool
 	buildScannerImage                        string
-	buildScannerExtraEnvVars                 map[string]string
-	scannerExtraEnvVarFlags                  flagutil.EnvVarFlags
 	enableDependencyTrackIntegration         bool
 	dependencyTrackApiEndpoint               string
 	dependencyTrackApiKey                    string
@@ -210,8 +207,18 @@ func main() {
 	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
 		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
 
-	flag.Var(&scannerExtraEnvVarFlags, "build-scanner-extra-env",
-		"Extra KEY=VALUE environment variable to inject into the scan pod (can be repeated; env var: BUILD_SCANNER_EXTRA_ENV_VARS accepts comma-separated KEY=VALUE pairs).")
+	buildScannerExtraEnvVars := make(map[string]string)
+	parseKV := func(s string) error {
+		k, v, ok := strings.Cut(strings.TrimSpace(s), "=")
+		if !ok || strings.TrimSpace(k) == "" {
+			return fmt.Errorf("expected KEY=VALUE, got %q", s)
+		}
+		buildScannerExtraEnvVars[k] = v
+		return nil
+	}
+	flag.Func("build-scanner-extra-env",
+		"Extra KEY=VALUE env var for the scan pod (repeatable; env var: BUILD_SCANNER_EXTRA_ENV_VARS accepts comma-separated KEY=VALUE pairs).",
+		parseKV)
 
 	// Automatically parse logging flags.
 	opts := zap.Options{
@@ -255,14 +262,13 @@ func main() {
 	// The env var accepts a comma-separated list of KEY=VALUE pairs.
 	if envVarStr := variables.GetEnv("BUILD_SCANNER_EXTRA_ENV_VARS", ""); envVarStr != "" {
 		for _, kv := range strings.Split(envVarStr, ",") {
-			e := scannerExtraEnvVarFlags.Set(kv)
-			if e != nil {
-				// if this fails, something serious is wrong
-				log.Fatalf("Unable to add extra env vars, error: %v", e.Error())
+			if kv = strings.TrimSpace(kv); kv != "" {
+				if err := parseKV(kv); err != nil {
+					log.Fatalf("Invalid BUILD_SCANNER_EXTRA_ENV_VARS entry: %v", err)
+				}
 			}
 		}
 	}
-	buildScannerExtraEnvVars = flagutil.ParseEnvVarFlags(scannerExtraEnvVarFlags)
 	if v, err := strconv.Atoi(variables.GetEnv("CONFIGMAP_RECONCILER_MAX_CONCURRENT", "")); err == nil {
 		maxConcurrentCMReconcilers = v
 	}
