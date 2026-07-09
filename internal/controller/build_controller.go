@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	v1 "k8s.io/api/apps/v1"
@@ -40,6 +41,7 @@ type BuildReconciler struct {
 	Scheme            *runtime.Scheme
 	InsightsJWTSecret string
 	ScanImageName     string
+	ExtraEnvVars      map[string]string
 }
 
 const insightsBuildPodScannedLabel = "insights.lagoon.sh/scanned"
@@ -80,7 +82,7 @@ func (r *BuildReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		// now we generate the pod spec we'd like to deploy
-		podspec, err := generateScanPodSpec(&buildPod, imageList, r.ScanImageName, dockerhost)
+		podspec, err := generateScanPodSpec(&buildPod, imageList, r.ScanImageName, dockerhost, r.ExtraEnvVars)
 		if err != nil {
 			logger.Error(err, "Unable to generate the podspec for the image scanner.")
 			return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -157,7 +159,7 @@ func (r *BuildReconciler) scanDeployments(ctx context.Context, req ctrl.Request,
 }
 
 // generateScanPodSpec generates the pod spec for the scanner that will be injected into the namespace
-func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, dockerhost string) (*corev1.Pod, error) {
+func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, dockerhost string, extraEnvVars map[string]string) (*corev1.Pod, error) {
 
 	if len(images) == 0 {
 		return nil, errors.New("no images to scan")
@@ -204,23 +206,38 @@ func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, d
 		},
 	}
 
-	envVars := []corev1.EnvVar{
-		{Name: "INSIGHT_SCAN_IMAGES", Value: strings.Join(images, ",")},
-		{Name: "NAMESPACE", Value: buildPod.Namespace},
-		{Name: "DOCKER_HOST", Value: dockerhost},
+	envMap := map[string]corev1.EnvVar{
+		"INSIGHT_SCAN_IMAGES": {Name: "INSIGHT_SCAN_IMAGES", Value: strings.Join(images, ",")},
+		"NAMESPACE":           {Name: "NAMESPACE", Value: buildPod.Namespace},
+		"DOCKER_HOST":         {Name: "DOCKER_HOST", Value: dockerhost},
 	}
 
-	// Copy env vars from the build pod to the scan pod
+	// Copy env vars from the build pod to the scan pod, preserving ValueFrom
 	copyVars := []string{
 		"BRANCH", "BUILD_TYPE", "ENVIRONMENT", "ENVIRONMENT_TYPE", "PROJECT",
 		"PR_BASE_BRANCH", "PR_HEAD_BRANCH", "PR_NUMBER",
 		"LAGOON_ENVIRONMENT_VARIABLES", "LAGOON_FEATURE_FLAG_.+",
 	}
-	for i := range buildPod.Spec.Containers[0].Env {
-		if containsRegex(copyVars, buildPod.Spec.Containers[0].Env[i].Name) {
-			envVars = append(envVars, buildPod.Spec.Containers[0].Env[i])
-			continue
+	for _, e := range buildPod.Spec.Containers[0].Env {
+		if containsRegex(copyVars, e.Name) {
+			envMap[e.Name] = e
 		}
+	}
+
+	// Extra env vars override anything above
+	for k, v := range extraEnvVars {
+		envMap[k] = corev1.EnvVar{Name: k, Value: v}
+	}
+
+	// Convert to a sorted slice for determinism
+	envKeys := make([]string, 0, len(envMap))
+	for k := range envMap {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	envVars := make([]corev1.EnvVar, len(envKeys))
+	for i, k := range envKeys {
+		envVars[i] = envMap[k]
 	}
 
 	podSpec.Spec.Containers[0].Env = envVars

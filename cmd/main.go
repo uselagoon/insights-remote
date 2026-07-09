@@ -23,7 +23,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"lagoon.sh/insights-remote/internal"
@@ -206,6 +208,24 @@ func main() {
 	flag.StringVar(&buildScannerImage, "build-scanner-image", "uselagoon/insights-scanner:latest",
 		"Specifies an image to be used by the build-scanning process (env var: BUILD_SCANNER_IMAGE")
 
+	buildScannerExtraEnvVars := make(map[string]string)
+	envVarNameRe := regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	parseKV := func(s string) error {
+		k, v, ok := strings.Cut(strings.TrimSpace(s), "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			return fmt.Errorf("expected KEY=VALUE, got %q", s)
+		}
+		if !envVarNameRe.MatchString(k) {
+			return fmt.Errorf("invalid env var name %q: must match [A-Za-z_][A-Za-z0-9_]*", k)
+		}
+		buildScannerExtraEnvVars[k] = v
+		return nil
+	}
+	flag.Func("build-scanner-extra-env",
+		"Extra KEY=VALUE env var for the scan pod (repeatable; env var: BUILD_SCANNER_EXTRA_ENV_VARS accepts comma-separated KEY=VALUE pairs).",
+		parseKV)
+
 	// Automatically parse logging flags.
 	opts := zap.Options{
 		Development: true,
@@ -243,6 +263,18 @@ func main() {
 	enableInsightDeferred = variables.GetEnvBool("ENABLE_INSIGHTS_DEFERRED", enableInsightDeferred)
 	enableBuildScanning = variables.GetEnvBool("ENABLE_BUILD_SCANNING", enableBuildScanning)
 	buildScannerImage = variables.GetEnv("BUILD_SCANNER_IMAGE", buildScannerImage)
+
+	// Merge extra env vars from CLI flags and the BUILD_SCANNER_EXTRA_ENV_VARS env var.
+	// The env var accepts a comma-separated list of KEY=VALUE pairs.
+	if envVarStr := variables.GetEnv("BUILD_SCANNER_EXTRA_ENV_VARS", ""); envVarStr != "" {
+		for _, kv := range strings.Split(envVarStr, ",") {
+			if kv = strings.TrimSpace(kv); kv != "" {
+				if err := parseKV(kv); err != nil {
+					log.Fatalf("Invalid BUILD_SCANNER_EXTRA_ENV_VARS entry: %v", err)
+				}
+			}
+		}
+	}
 	if v, err := strconv.Atoi(variables.GetEnv("CONFIGMAP_RECONCILER_MAX_CONCURRENT", "")); err == nil {
 		maxConcurrentCMReconcilers = v
 	}
@@ -453,6 +485,7 @@ func main() {
 			Scheme:            mgr.GetScheme(),
 			InsightsJWTSecret: insightsTokenSecret,
 			ScanImageName:     buildScannerImage,
+			ExtraEnvVars:      buildScannerExtraEnvVars,
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create build reconciler controller", "controller", "Namespace")
 			os.Exit(1)
