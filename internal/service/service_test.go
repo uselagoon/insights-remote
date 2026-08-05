@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/util/json"
 	"lagoon.sh/insights-remote/internal"
@@ -187,4 +188,49 @@ func TestProblemDeletionRoute(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestHeaderMiddleware(t *testing.T) {
+	defer resetWriterOutput()
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+
+	router.POST("/getnamespacetest", func(c *gin.Context) {
+		val, exists := c.Get("namespace")
+		if !exists {
+			c.XML(http.StatusBadRequest, "failed")
+		}
+		c.XML(http.StatusOK, val)
+	})
+
+	w := httptest.NewRecorder()
+
+	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
+		Namespace:       secretTestNamespace,
+		EnvironmentId:   testEnvironmentId,
+		ProjectName:     "Test",
+		EnvironmentName: "Test",
+	})
+
+	require.NoError(t, err)
+
+	// First, let's test a failure
+
+	var bodyString []byte
+	req, _ := http.NewRequest(http.MethodPost, "/getnamespacetest", bytes.NewBuffer(bodyString))
+	req.Header.Set("Authorization", "busted")
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code)
+
+	// Now we get success
+	w2 := httptest.NewRecorder()
+	req2, _ := http.NewRequest(http.MethodPost, "/getnamespacetest", bytes.NewBuffer(bodyString))
+	req2.Header.Set("Authorization", token)
+	req2.Header.Set("Content-Type", "application/xml")
+	router.ServeHTTP(w2, req2)
+
+	assert.Equal(t, http.StatusOK, w2.Code)
+	assert.Contains(t, w2.Body.String(), secretTestNamespace)
+
 }
