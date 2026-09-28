@@ -11,6 +11,7 @@ type Fact struct {
 	Type            string `json:"type"`
 	Category        string `json:"category"`
 	Service         string `json:"service"`
+	KeyFact			bool
 }
 
 type Facts struct {
