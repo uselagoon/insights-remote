@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,8 +20,10 @@ import (
 const secretTestTokenSecret = "secret"
 const secretTestNamespace = "testNS"
 const testEnvironmentId = "777"
+const sbomFileType = "sbom.json"
 
 var queueWriterOutput string
+var testProjectName, testEnvironmentName string
 
 func messageQueueWriter(data []byte) error {
 	queueWriterOutput = string(data)
@@ -31,7 +36,7 @@ func resetWriterOutput() {
 
 func TestWriteFactsRoute(t *testing.T) {
 	defer resetWriterOutput()
-	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true, "", DefaultMaxSBOMUploadSize)
 	w := httptest.NewRecorder()
 
 	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
@@ -68,7 +73,7 @@ func TestWriteFactsRoute(t *testing.T) {
 
 func TestWriteFactsRouteNoProjectData(t *testing.T) {
 	defer resetWriterOutput()
-	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true, "", DefaultMaxSBOMUploadSize)
 	w := httptest.NewRecorder()
 
 	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
@@ -104,7 +109,7 @@ func TestWriteFactsRouteNoProjectData(t *testing.T) {
 
 func TestWriteProblemsRoute(t *testing.T) {
 	defer resetWriterOutput()
-	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true, "", DefaultMaxSBOMUploadSize)
 	w := httptest.NewRecorder()
 
 	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
@@ -145,7 +150,7 @@ func TestWriteProblemsRoute(t *testing.T) {
 
 func TestFactDeletionRoute(t *testing.T) {
 	defer resetWriterOutput()
-	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true, "", DefaultMaxSBOMUploadSize)
 	w := httptest.NewRecorder()
 
 	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
@@ -168,7 +173,7 @@ func TestFactDeletionRoute(t *testing.T) {
 
 func TestProblemDeletionRoute(t *testing.T) {
 	defer resetWriterOutput()
-	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true)
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true, "", DefaultMaxSBOMUploadSize)
 	w := httptest.NewRecorder()
 
 	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
@@ -187,4 +192,74 @@ func TestProblemDeletionRoute(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestSBOMUploadRoute(t *testing.T) {
+	defer resetWriterOutput()
+
+	testProjectName = "Test"
+	testEnvironmentName = "Test"
+
+	tmpDir := t.TempDir()
+
+	router := SetupRouter(secretTestTokenSecret, messageQueueWriter, true, tmpDir, DefaultMaxSBOMUploadSize)
+	w := httptest.NewRecorder()
+
+	token, err := tokens.GenerateTokenForNamespace(secretTestTokenSecret, tokens.NamespaceDetails{
+		Namespace:       secretTestNamespace,
+		EnvironmentId:   testEnvironmentId,
+		ProjectName:     testProjectName,
+		EnvironmentName: testEnvironmentName,
+	})
+
+	require.NoError(t, err)
+
+	payload := map[string]string{
+		"sbom.json": `{"bomFormat":"CycloneDX","specVersion":"1.5"}`,
+	}
+
+	binaryPayload := make(map[string][]byte, len(payload))
+	for k, v := range payload {
+		binaryPayload[k] = []byte(v)
+	}
+
+	bodyString := []internal.LagoonInsightsMessage{
+		{
+			Payload:       payload,
+			BinaryPayload: binaryPayload,
+			Annotations: map[string]string{
+				"test-annotation": "test-annotation-value",
+			},
+			Labels: map[string]string{
+				"test-label": "test-label-value",
+			},
+			Namespace:   "TestNamespace",
+			Environment: "testEnvironment",
+			Service:     "test-service",
+			Project:     "test-project",
+			Type:        "test-type",
+		},
+	}
+
+	jsonBody, _ := json.Marshal(bodyString)
+	req, _ := http.NewRequest(http.MethodPost, "/sboms", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Authorization", token)
+	req.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	expectedFileName := strings.Join([]string{
+		slugify(testProjectName),
+		slugify(testEnvironmentName),
+		sbomFileType,
+	}, "-")
+
+	expectedPath := filepath.Join(tmpDir, slugify(secretTestNamespace), expectedFileName)
+	written, err := os.ReadFile(expectedPath)
+	require.NoError(t, err, "expected SBOM file to have been written to %s", expectedPath)
+
+	// writeSBOMs currently writes the raw request body as sent, so the file
+	// on disk should be the exact JSON we posted
+	assert.JSONEq(t, string(jsonBody), string(written))
 }
