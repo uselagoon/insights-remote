@@ -1,9 +1,19 @@
 package parserfilter
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+
 	cdx "github.com/CycloneDX/cyclonedx-go"
 	// "github.com/uselagoon/machinery/utils/namespace"
 	"log/slog"
+
+	"github.com/CycloneDX/cyclonedx-go"
 	LagoonFact "lagoon.sh/insights-remote/internal"
 )
 
@@ -66,6 +76,57 @@ import (
 // 	return facts, source, nil
 // }
 
+func loadAndProcessSBOMFromDisk(logger *slog.Logger, filename string, environmentId string, source string) ([]LagoonFact.Fact, error) {
+
+	bomData, err := os.ReadFile(filename)
+	if err != nil {
+		return []LagoonFact.Fact{}, err
+	}
+
+	bom, err := getBOMfromPayload(bomData)
+	fmt.Print(bom)
+
+	return []LagoonFact.Fact{}, nil
+}
+
+func getBOMfromPayload(v []byte) (*cyclonedx.BOM, error) {
+	bom := new(cyclonedx.BOM)
+
+	// Decode base64
+	r := bytes.NewReader(v)
+	dec := base64.NewDecoder(base64.StdEncoding, r)
+
+	res, err := io.ReadAll(dec)
+	if err != nil {
+		return nil, err
+	}
+
+	fileType := http.DetectContentType(res)
+
+	if fileType != "application/zip" && fileType != "application/x-gzip" && fileType != "application/gzip" {
+		decoder := cyclonedx.NewBOMDecoder(bytes.NewReader(res), cyclonedx.BOMFileFormatJSON)
+		if err = decoder.Decode(bom); err != nil {
+			return nil, err
+		}
+	} else {
+		// Compressed cyclonedx sbom
+		result, decErr := decodeGzipString(v)
+		if decErr != nil {
+			return nil, decErr
+		}
+		b, mErr := json.MarshalIndent(result, "", " ")
+		if mErr != nil {
+			return nil, mErr
+		}
+
+		decoder := cyclonedx.NewBOMDecoder(bytes.NewReader(b), cyclonedx.BOMFileFormatJSON)
+		if err = decoder.Decode(bom); err != nil {
+			return nil, err
+		}
+	}
+	return bom, nil
+}
+
 func processFactsFromSBOM(logger *slog.Logger, facts *[]cdx.Component, environmentId string, source string) []LagoonFact.Fact {
 	var factsInput []LagoonFact.Fact
 	if facts == nil || len(*facts) == 0 {
@@ -86,16 +147,13 @@ func processFactsFromSBOM(logger *slog.Logger, facts *[]cdx.Component, environme
 	for _, f := range filteredFacts {
 		fact := LagoonFact.Fact{
 			EnvironmentId: environmentId,
-			Name:        f.Name,
-			Value:       f.Version,
-			Source:      source,
-			Description: f.PackageURL,
-			KeyFact:     false,
-			Type:        FactTypeText,
+			Name:          f.Name,
+			Value:         f.Version,
+			Source:        source,
+			Description:   f.PackageURL,
+			KeyFact:       false,
+			Type:          FactTypeText,
 		}
-		//if EnableDebug {
-		//	log.Println("[DEBUG] processing fact name " + f.Name)
-		//}
 		logger.Debug("Processing fact",
 			"Name", f.Name,
 			"Value", f.Version,

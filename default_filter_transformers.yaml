@@ -1,0 +1,336 @@
+---
+transforms:
+
+## Operating System transformers
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: alpine
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Alpine Linux
+          - name: Category
+            value: OS
+          - name: Description
+            value: Base image Alpine Linux version
+      keyfact: true
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: amzn
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Amazon Linux
+          - name: Category
+            value: OS
+          - name: Description
+            value: Base image Amazon Linux version
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: debian
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Debian Linux
+          - name: Category
+            value: OS
+          - name: Description
+            value: Base image Debian Linux version
+
+# Lagoon Transformers
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: LAGOON_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Image Version
+          - name: Category
+            value: Lagoon
+          - name: Description
+            value: The currently running Lagoon Image version
+      keyfact: true
+
+# Service Transformers
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: mariadb-common
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: MariaDB
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running MariaDB service
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: mongodb
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: MongoDB
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running MongoDB service
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: nginx
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: NGINX
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running NGINX service
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: opensearch-core
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: OpenSearch
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running OpenSearch service
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: PG_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: PostgreSQL
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running PostgreSQL service
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: RABBITMQ_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: RabbitMQ
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running RabbitMQ service
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: REDIS_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Redis
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running Redis service
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: solr-core
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Solr
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running Solr service
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: varnish
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Varnish
+          - name: Category
+            value: Service
+          - name: Description
+            value: The currently running Varnish service
+
+# Language Transformers
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: NODE_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: NodeJS
+          - name: Category
+            value: Language
+          - name: Description
+            value: The currently installed NodeJS version
+      keyfact: true
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: PHP_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: PHP
+          - name: Category
+            value: Language
+          - name: Description
+            value: The currently installed PHP version
+      keyfact: true
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: PYTHON_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Python
+          - name: Category
+            value: Language
+          - name: Description
+            value: The currently installed Python version
+      keyfact: true
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: RUBY_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Ruby
+          - name: Category
+            value: Language
+          - name: Description
+            value: The currently installed Ruby version
+      keyfact: true
+
+# Application Transformers
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: drupal/core
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Drupal
+          - name: Category
+            value: Application
+      keyfact: true
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: johnpbloch/wordpress-core
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Wordpress
+          - name: Category
+            value: Application
+          - name: Description
+            value: The currently installed Wordpress version
+      keyfact: true
+    - type: cyclonedx.Component
+      lookupvalue:
+        - name: Name
+          value: rails
+          exactMatch: true
+      transformations:
+        - name: Name
+          value: Ruby on Rails
+        - name: Category
+          value: Application
+        - name: Description
+          value: The currently installed Rails version
+      keyfact: true
+    - type: cyclonedx.Component
+      lookupvalue:
+        - name: Name
+          value: typo3/cms-core
+          exactMatch: true
+      transformations:
+        - name: Name
+          value: TYPO3
+        - name: Category
+          value: Application
+        - name: Description
+          value: The currently installed typo3/cms version
+      keyfact: true
+    - type: cyclonedx.Component
+      lookupvalue:
+        - name: Name
+          value: laravel/framework
+          exactMatch: true
+      transformations:
+        - name: Name
+          value: Laravel
+        - name: Category
+          value: Application
+        - name: Description
+          value: The currently installed Laravel version
+      keyfact: true
+    - type: cyclonedx.Component
+      lookupvalue:
+        - name: Name
+          value: wagtail
+          exactMatch: true
+      transformations:
+        - name: Name
+          value: Laravel
+        - name: Category
+          value: Application
+        - name: Description
+          value: The currently installed Wagtail version
+      keyfact: true
+
+# Helper Transformers
+    - type: cyclonedx.Component
+      lookupvalue:
+          - name: Name
+            value: drush/drush
+      transformations:
+          - name: Name
+            value: Drush
+          - name: Category
+            value: Helper
+      keyfact: true
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: PYTHON_PIP_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: pip
+          - name: Category
+            value: Helper
+          - name: Description
+            value: The currently installed pip (Python package installer) version
+      keyfact: true
+    - type: handler.EnvironmentVariable
+      lookupvalue:
+          - name: Key
+            value: YARN_VERSION
+            exactMatch: true
+      transformations:
+          - name: Name
+            value: Yarn
+          - name: Category
+            value: Helper
+          - name: Description
+            value: The currently installed Yarn package manager version
+      keyfact: true
