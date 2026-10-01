@@ -210,6 +210,7 @@ func generateScanPodSpec(buildPod *corev1.Pod, images []string, scanImageName, d
 		"INSIGHT_SCAN_IMAGES": {Name: "INSIGHT_SCAN_IMAGES", Value: strings.Join(images, ",")},
 		"NAMESPACE":           {Name: "NAMESPACE", Value: buildPod.Namespace},
 		"DOCKER_HOST":         {Name: "DOCKER_HOST", Value: dockerhost},
+		"LAGOON_BUILD_NAME":   {Name: "LAGOON_BUILD_NAME", Value: buildPod.Name},
 	}
 
 	// Copy env vars from the build pod to the scan pod, preserving ValueFrom
