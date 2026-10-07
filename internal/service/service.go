@@ -20,6 +20,10 @@ import (
 // single request can't exhaust the PVC backing SbomStoragePath.
 const DefaultMaxSBOMUploadSize = 32 * 1024 * 1024 // 32MB
 
+// DefaultSBOMStoragePath is the base directory (on the PVC mounted at /data)
+// under which SBOMs posted to /sboms are stored.
+const DefaultSBOMStoragePath = "/data/sboms"
+
 type AuthHeader struct {
 	Authorization string `header:"Authorization"`
 }
@@ -296,6 +300,8 @@ func (r *routerInstance) writeSBOMs(c *gin.Context) {
 	// Wrap the request body to enforce the maximum upload size
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, r.MaxUploadSize)
 
+	// TODO: does it make sense to add a UUID to the SBOM before writing it to disk or include it in the file name?
+
 	bodyBytes, err := c.GetRawData()
 	if err != nil {
 		// Check if the error is due to exceeding MaxUploadSize
@@ -329,6 +335,10 @@ func (r *routerInstance) writeSBOMs(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// TODO: Write the SBOM details to the catalog database as an artifact
+
+	// TODO: We currently hold the SBOM in memory; should we pass it to post-processing directly? Is that even possible?
 
 	c.Status(http.StatusOK)
 }
