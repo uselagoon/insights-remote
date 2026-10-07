@@ -639,7 +639,7 @@ func startInsightsDeferredClearCron(mgr manager.Manager) {
 }
 
 func startInsightsEndpoint(mgr manager.Manager) {
-	router := service.SetupRouter(insightsTokenSecret, mqWriteObject, mqEnable)
+	router := service.SetupRouter(insightsTokenSecret, mqWriteObject, mqEnable, service.DefaultSBOMStoragePath, service.DefaultMaxSBOMUploadSize)
 	go func() {
 		if err := router.Run(fmt.Sprintf(":%v", webservicePort)); err != nil {
 			log.Printf("Error running insights endpoint: %v", err)
