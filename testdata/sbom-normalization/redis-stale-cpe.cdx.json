@@ -1,0 +1,58 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:5b1a7f0e-2c3d-4e5f-8a9b-0c1d2e3f4a5b",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-30T04:21:11Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "author": "anchore",
+          "name": "syft",
+          "version": "1.18.1"
+        }
+      ]
+    },
+    "component": {
+      "bom-ref": "af63bd4c8601b7f1",
+      "type": "container",
+      "name": "redis:7.2.14",
+      "version": "sha256:3c5f4e9d8b2a1f6e0c7d4b3a2e1f0d9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:generic/redis@7.2.14?package-id=1a2b3c4d5e6f7a8b",
+      "type": "application",
+      "name": "redis",
+      "version": "7.2.14",
+      "cpe": "cpe:2.3:a:redislabs:redis:7.2.14:*:*:*:*:*:*:*",
+      "purl": "pkg:generic/redis@7.2.14",
+      "properties": [
+        {
+          "name": "syft:package:foundBy",
+          "value": "binary-classifier-cataloger"
+        },
+        {
+          "name": "syft:package:type",
+          "value": "binary"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:redislabs:redis:7.2.14:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:cpe23",
+          "value": "cpe:2.3:a:redis:redis:7.2.14:*:*:*:*:*:*:*"
+        },
+        {
+          "name": "syft:location:0:path",
+          "value": "/usr/local/bin/redis-server"
+        }
+      ]
+    }
+  ]
+}
