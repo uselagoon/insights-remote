@@ -13,6 +13,7 @@ import (
 
 	dtrack "github.com/DependencyTrack/client-go"
 	"lagoon.sh/insights-remote/internal"
+	"lagoon.sh/insights-remote/internal/sbom"
 )
 
 type Templates struct {
@@ -258,12 +259,24 @@ func postProcess(message internal.LagoonInsightsMessage, pushProdOnly bool, temp
 		return err
 	}
 
+	// wires in bom expansion if applicable
+	bom := unzippedPayload.Bytes()
+	expanded, err := sbom.Expand(bom)
+	if err != nil {
+		slog.Warn("SBOM expansion failed", "error", err)
+	} else {
+		bom = expanded.Data
+		if expanded.ComponentsAdded > 0 {
+			slog.Info("SBOM expanded", "componentsAdded", expanded.ComponentsAdded)
+		}
+	}
+
 	request := dtrack.BOMUploadRequest{
 		ProjectName:    writeInfo.ProjectName,
 		ParentUUID:     &project.UUID,
 		AutoCreate:     true,
 		ProjectVersion: writeInfo.ProjectVersion,
-		BOM:            base64.StdEncoding.EncodeToString(unzippedPayload.Bytes()),
+		BOM:            base64.StdEncoding.EncodeToString(bom),
 		ProjectTags:    dtrackTags,
 	}
 
