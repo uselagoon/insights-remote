@@ -95,7 +95,7 @@ func expandComponent(comp *Component) []Component {
 			continue
 		}
 
-		if normalize(vendor) != normalize(product) {
+		if normalize(vendor) != normalize(product) || normalize(product) != normalize(comp.Name) {
 			continue
 		}
 
