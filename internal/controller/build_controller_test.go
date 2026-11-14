@@ -67,6 +67,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 								{Name: "DOCKER_HOST", Value: defaultDockerhost},
 								{Name: "ENVIRONMENT", Value: "environmentName"},
 								{Name: "INSIGHT_SCAN_IMAGES", Value: "image1,image2"},
+								{Name: "LAGOON_BUILD_NAME", Value: "buildnamehere"},
 								{Name: "NAMESPACE", Value: "testns"},
 								{Name: "PROJECT", Value: "projectName"},
 							},
@@ -140,6 +141,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 								{Name: "DOCKER_HOST", Value: defaultDockerhost},
 								{Name: "ENVIRONMENT", Value: "environmentName"},
 								{Name: "INSIGHT_SCAN_IMAGES", Value: "image1,image2"},
+								{Name: "LAGOON_BUILD_NAME", Value: "buildnamehere"},
 								{Name: "LAGOON_ENVIRONMENT_VARIABLES", Value: "lagoonEnvironmentVariables"},
 								{Name: "LAGOON_FEATURE_FLAG_INSIGHTS", Value: "lagoonFeatureFlagInsights"},
 								{Name: "LAGOON_FEATURE_FLAG_TEST", Value: "lagoonFeatureFlagTest"},
@@ -214,6 +216,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 							Env: []corev1.EnvVar{
 								{Name: "DOCKER_HOST", Value: defaultDockerhost},
 								{Name: "INSIGHT_SCAN_IMAGES", Value: "image1"},
+								{Name: "LAGOON_BUILD_NAME", Value: "buildnamehere"},
 								{Name: "NAMESPACE", Value: "testns"},
 								{
 									Name: "PROJECT",
@@ -291,6 +294,7 @@ func Test_generateScanPodSpec(t *testing.T) {
 							Env: []corev1.EnvVar{
 								{Name: "DOCKER_HOST", Value: defaultDockerhost},
 								{Name: "INSIGHT_SCAN_IMAGES", Value: "image1"},
+								{Name: "LAGOON_BUILD_NAME", Value: "buildnamehere"},
 								{Name: "NAMESPACE", Value: "testns"},
 								{Name: "PROJECT", Value: "projectName"},
 								{Name: "SYFT_LOG_LEVEL", Value: "warn"},
